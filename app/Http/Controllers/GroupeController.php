@@ -7,6 +7,7 @@ use App\Services\RapportService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Cache;
 use PDO;
 
 class GroupeController extends Controller
@@ -16,6 +17,14 @@ class GroupeController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
+        // If caller requested all groups (for selects), return full list without pagination (cached)
+        if ($request->query('all')) {
+            $all = Cache::remember('all_groupes', 43200, function() {
+                return Groupe::with(['centre:id,shortName'])->orderBy('id', 'desc')->get();
+            });
+            return response()->json(['data' => $all]);
+        }
+
         $search = $request->query('search');
         $filiere = $request->query('filiere');
         $niveau = $request->query('niveau');
@@ -23,8 +32,9 @@ class GroupeController extends Controller
 
         $perPage = (int) $request->query('perPage', 6);
         $page = (int) $request->query('page', 1);
+        $noPagination = $request->query('no_pagination') || $perPage >= 1000; // Allow high perPage to bypass pagination
 
-        $query = Groupe::query();
+        $query = Groupe::query()->orderBy('id', 'desc'); // Newest first
 
         if ($search) {
             $query->where(function ($q) use ($search) {
@@ -47,23 +57,28 @@ class GroupeController extends Controller
             $query->where('centre_id', $centre_id);
         }
 
-        // If caller requested all groups (for selects), return full list without pagination
-        if ($request->query('all')) {
-            // Load full group data for timetable display
-            $all = $query->with(['centre:id,shortName'])
-                ->get();
+        if ($noPagination) {
+            // Return all groups without pagination
+            $groups = $query->with(['centre','modules','emplois'])->get()->map(function (Groupe $groupe) {
+                $groupe->load(['modules', 'emplois']);
+                $groupe->avancement;
+                $groupe->advancement;
+                return $groupe;
+            });
 
-            // Reverse groups only for CFIFJ centre
-            $all = $all->groupBy(function ($groupe) {
-                return $groupe->centre ? $groupe->centre->shortName : '';
-            })->map(function ($groups, $shortName) {
-                if ($shortName === 'CFIFJ') {
-                    return $groups->reverse();
-                }
-                return $groups;
-            })->flatten();
+            // Debug: Log the results
+            \Log::info('Groups fetched (no pagination)', [
+                'count' => $groups->count(),
+                'first_few' => $groups->take(3)->pluck('nomGroupe')->toArray()
+            ]);
 
-            return response()->json(['data' => $all]);
+            return response()->json([
+                'data' => $groups,
+                'total' => $groups->count(),
+                'perPage' => $groups->count(),
+                'currentPage' => 1,
+                'lastPage' => 1,
+            ]);
         }
 
         $paginator = $query->with(['centre','modules','emplois'])->paginate($perPage, ['*'], 'page', $page);
@@ -104,6 +119,10 @@ class GroupeController extends Controller
         $groupe = Groupe::create($validated);
         // Load centre relation before returning
         $groupe->load('centre');
+
+        // Clear cache to ensure new group appears immediately
+        Cache::forget('all_groupes');
+
         return response()->json($groupe, 201);
     }
 
@@ -133,6 +152,10 @@ class GroupeController extends Controller
         $groupe->update($validated);
         // Load centre relation before returning
         $groupe->load('centre');
+
+        // Clear cache to ensure changes appear immediately
+        Cache::forget('all_groupes');
+
         return response()->json($groupe);
     }
 
@@ -141,7 +164,13 @@ class GroupeController extends Controller
      */
     public function destroy(Groupe $groupe): JsonResponse
     {
+        $groupeId = $groupe->id;
         $groupe->delete();
+
+        // Clear caches
+        Cache::forget('all_groupes');
+        Cache::forget('modules_groupe_'.$groupeId);
+        Cache::forget('formateurs_for_groupe_'.$groupeId);
 
         // Attempt to reset auto-increment/sequence so IDs are compacted.
         try {

@@ -6,6 +6,7 @@ use App\Models\Formateur;
 use Illuminate\View\View;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Cache;
 
 class FormateurController extends Controller
 {
@@ -19,7 +20,9 @@ class FormateurController extends Controller
      */
     public function index(): JsonResponse
     {
-        $formateurs = Formateur::with(['modules', 'emplois'])->get();
+        $formateurs = Cache::remember('all_formateurs', 86400, function() {
+            return Formateur::with(['modules', 'emplois'])->get();
+        });
         return response()->json($formateurs);
     }
 
@@ -48,6 +51,7 @@ class FormateurController extends Controller
         }
         
         $formateur->load('modules');
+        Cache::forget('all_formateurs');
         return response()->json($formateur, 201);
     }
 
@@ -85,6 +89,8 @@ class FormateurController extends Controller
         }
         
         $formateur->load('modules');
+        Cache::forget('all_formateurs');
+        Cache::forget('groupes_for_formateur_'.$formateur->id);
         return response()->json($formateur);
     }
 
@@ -93,7 +99,10 @@ class FormateurController extends Controller
      */
     public function destroy(Formateur $formateur): JsonResponse
     {
+        $formateurId = $formateur->id;
         $formateur->delete();
+        Cache::forget('all_formateurs');
+        Cache::forget('groupes_for_formateur_'.$formateurId);
         return response()->json(['message' => 'Formateur deleted successfully']);
     }
 }

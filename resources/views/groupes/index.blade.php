@@ -226,13 +226,15 @@
                             </tr>
                         </template>
                         <tr x-show="paginatedGroups().length === 0">
-                            <td colspan="7" style="padding:60px 20px; text-align:center; color:#9ca3af; font-size:14px;">No groups found.</td>
+                            <td colspan="7" style="padding:60px 20px; text-align:center; color:#9ca3af; font-size:14px;">
+                                No groups found. (Debug: groups array has <span x-text="groups.length"></span> items, paginated has <span x-text="paginatedGroups().length"></span>)
+                            </td>
                         </tr>
                     </tbody>
                 </table>
             </div>
 
-            <div class="gp-pagination">
+            <div class="gp-pagination" style="display: none;">
                 <div class="info">
                     Showing <strong x-text="startItem() + '–' + endItem()"></strong> of <strong x-text="total"></strong> groups
                 </div>
@@ -337,10 +339,17 @@ const registerFn = () => {
         currentPage: 1,
 
         async init() {
+            console.log('Initializing groups page...');
             await this.loadCentres();
-            await this.loadFilieres();
-            await this.loadNiveaux();
+            console.log('Centres loaded, now loading other data...');
+            await Promise.all([
+                this.loadFilieres(),
+                this.loadNiveaux()
+            ]);
+            console.log('All reference data loaded, now fetching groups...');
             await this.fetchGroupes();
+            console.log('Groups loaded, setting up watchers...');
+            
             this.$watch('search',        () => { this.page = 1; this.fetchGroupes(); });
             this.$watch('filterFiliere', () => { this.page = 1; this.fetchGroupes(); });
             this.$watch('filterNiveau',  () => { this.page = 1; this.fetchGroupes(); });
@@ -365,8 +374,12 @@ const registerFn = () => {
                     id:  c.id,
                     nom: c.nomCentre || c.nom || c.name || 'Centre ' + c.id
                 }));
+                console.log('Centres loaded:', this.centres);
                 populateCentreSelect(this.centres);
-            } catch { this.centres = []; }
+            } catch(e) { 
+                console.error('Could not load centres', e);
+                this.centres = []; 
+            }
         },
 
         async loadFilieres() {
@@ -431,18 +444,15 @@ const registerFn = () => {
                     filiere:   this.filterFiliere || '',
                     niveau:    this.filterNiveau || '',
                     centre_id: this.filterCentre || '',
-                    page:      this.page || 1,
-                    perPage:   this.perPage || 6,
+                    no_pagination: '1', // Request all groups without pagination
                 });
                 const res  = await fetch('/api/groupes?' + params.toString());
                 if (!res.ok) throw new Error();
                 const data = await res.json();
 
                 // Debug: log what the API actually returns
-                if (data.data && data.data[0]) {
-                    console.log('API group sample:', JSON.stringify(data.data[0]));
-                    console.log('Centres in memory:', this.centres);
-                }
+                console.log('API Response:', data);
+                console.log('Data array length:', data.data ? data.data.length : 'no data property');
 
                 const centresList = this.centres;
                 this.groups = (data.data || []).map(g => {
@@ -477,7 +487,14 @@ const registerFn = () => {
                 this.lastPage    = data.lastPage    || 1;
                 this.currentPage = data.currentPage || 1;
                 this.page        = this.currentPage;
-            } catch(e) { console.error('Could not load groups', e); }
+
+                // Debug: log final processed groups
+                console.log('Final groups array:', this.groups);
+                console.log('Groups count:', this.groups.length);
+            } catch(e) { 
+                console.error('Could not load groups', e);
+                console.error('Error details:', e.message);
+            }
         },
 
         openModal() {

@@ -643,6 +643,8 @@ document.addEventListener('alpine:init', () => {
             const visibleGroupIds = new Set(displayGroups.map(g => String(g.id)));
             let anyVisible = false;
             
+            console.log('Updating row visibility for groups:', displayGroups.length);
+
             Object.keys(this.groupRows).forEach((groupId) => {
                 const visible = visibleGroupIds.has(groupId);
                 if (visible) anyVisible = true;
@@ -1136,18 +1138,19 @@ document.addEventListener('alpine:init', () => {
 
         async loadGroupesForCentre() {
             const centreKey = this.selectedCentre ? String(this.selectedCentre) : 'all';
+            this.selectedCentre = centreKey === 'all' ? 'all' : centreKey;
             this.filteredGroupes = [];
             this.groupesById = {};
 
-            this.filteredGroupes = Array.isArray(this.groupesByCentre[centreKey])
-                ? this.groupesByCentre[centreKey].slice()
-                : [];
-            
-            // Fallback: if no filtered groups, use all groups (ensures data is always assigned)
-            if (this.filteredGroupes.length === 0) {
+            if (centreKey === 'all') {
                 this.filteredGroupes = this.allGroupes.slice();
+            } else {
+                this.filteredGroupes = this.allGroupes.filter(g => String(g.centre_id) === centreKey);
             }
-            
+
+            console.log('loadGroupesForCentre selectedCentre:', this.selectedCentre, 'centreKey:', centreKey);
+            console.log('Filtered groups count:', this.filteredGroupes.length, 'group ids:', this.filteredGroupes.map(g => g.id));
+
             this.groupesById = this.filteredGroupes.reduce((acc, groupe) => {
                 acc[String(groupe.id)] = groupe;
                 return acc;
@@ -1223,6 +1226,8 @@ document.addEventListener('alpine:init', () => {
             }
             const entries = cachedEntries || this.timetableCache[date]?.[centreKey] || [];
 
+            console.log('loadTimetableForDate', { date, centreKey, selectedCentre: this.selectedCentre, entriesCount: Array.isArray(entries) ? entries.length : 0 });
+
             this.resetTimetable();
             const weekDays = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
             const allEntries = Array.isArray(entries) ? entries : [];
@@ -1249,8 +1254,11 @@ document.addEventListener('alpine:init', () => {
                         nomGroupe: g ? (g.nomGroupe || g.name || ('Groupe ' + gid)) : ('Groupe ' + gid),
                         centre_id: g ? g.centre_id : null,
                     };
-                    this.filteredGroupes.push(groupeData);
-                    this.groupesById[String(groupeData.id)] = groupeData;
+                    // Only add if matches selected centre, or if all centres are selected
+                    if (this.selectedCentre === 'all' || !this.selectedCentre || String(groupeData.centre_id) === String(this.selectedCentre)) {
+                        this.filteredGroupes.push(groupeData);
+                        this.groupesById[String(groupeData.id)] = groupeData;
+                    }
                 }
             });
 
@@ -1259,7 +1267,9 @@ document.addEventListener('alpine:init', () => {
                 const dayIdx = weekDays.indexOf(dayName);
                 if (dayIdx === -1) return;
 
-                const slotIdx = parseInt(entry.creneau || entry.slot) - 1;
+                const creneauRaw = String(entry.creneau || entry.slot || '').trim();
+                const slotNumber = parseInt(creneauRaw.replace(/\D/g, ''), 10);
+                const slotIdx = Number.isNaN(slotNumber) ? -1 : slotNumber - 1;
                 if (slotIdx < 0 || slotIdx >= 4) return;
 
                 const gid = entry.groupe_id;
@@ -1337,10 +1347,12 @@ document.addEventListener('alpine:init', () => {
                 if (meta) headers['X-CSRF-TOKEN'] = meta.content;
 
                 const payload = {
-                    centre_id: Number(this.selectedCentre),
                     date: this.selectedDate,
                     entries: Object.values(entriesMap)
                 };
+                if (this.selectedCentre && this.selectedCentre !== 'all') {
+                    payload.centre_id = Number(this.selectedCentre);
+                }
 
                 const r = await fetch('/api/emploi-groupe/save', { 
                     method: 'POST', 
@@ -1356,7 +1368,13 @@ document.addEventListener('alpine:init', () => {
                 await r.json();
                 this.timetableExists = true;
                 this.lastSaved = this.formatDateTime(new Date().toISOString());
+                // Invalidate exactly the selected centre cache and current date cache
+                if (this.timetableCache[this.selectedDate]) {
+                    delete this.timetableCache[this.selectedDate][this.selectedCentre || 'all'];
+                    delete this.timetableCache[this.selectedDate]['all'];
+                }
                 await this.loadTimetableForDate();
+                console.log('Timetable after save:', this.timetable);
                 etToast('Emploi du temps enregistré avec succès!', 'success');
             } catch(e) {
                 console.error(e);
@@ -1490,6 +1508,11 @@ document.addEventListener('alpine:init', () => {
                 date: this.selectedDate,
                 centre_id: this.selectedCentre,
             });
+
+            // Include groupe_ids from filtered groups
+            if (this.filteredGroupes.length > 0) {
+                params.append('groupe_ids', this.filteredGroupes.map(g => g.id).join(','));
+            }
 
             // Include groupe_id if a specific group is selected (from URL parameter)
             if (this.selectedGroupeId) {

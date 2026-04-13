@@ -11,6 +11,7 @@ use App\Models\Centre;
 use App\Models\Setting;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Cache;
 use Carbon\Carbon;
 use Illuminate\Validation\ValidationException;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
@@ -33,12 +34,15 @@ class EmploiDuTempsController extends Controller
     public function getForFormateur(Request $request, $date)
     {
         $formateurId = $request->get('formateur_id');
+        $cacheKey = 'timetable_formateur_' . $formateurId . '_' . $date;
 
-        $timetable = EmploiDuTemps::select('id', 'groupe_id', 'formateur_id', 'module_id', 'salle_id', 'jour', 'creneau', 'date', 'type_session')
-            ->with(['groupe.centre', 'module', 'salle.centre'])
-            ->where('formateur_id', $formateurId)
-            ->whereDate('date', $date)
-            ->get();
+        $timetable = Cache::remember($cacheKey, 3600, function() use ($formateurId, $date) {
+            return EmploiDuTemps::select('id', 'groupe_id', 'formateur_id', 'module_id', 'salle_id', 'jour', 'creneau', 'date', 'type_session')
+                ->with(['groupe.centre', 'module', 'salle.centre'])
+                ->where('formateur_id', $formateurId)
+                ->whereDate('date', $date)
+                ->get();
+        });
         
         return response()->json($timetable);
     }
@@ -50,23 +54,25 @@ class EmploiDuTempsController extends Controller
     public function getForCentre(Request $request, $date)
     {
         $centreId = $request->get('centre_id');
-        
-        // Return entries for selected centre and exact selected date
-        $timetable = EmploiDuTemps::select('id', 'groupe_id', 'formateur_id', 'module_id', 'salle_id', 'jour', 'creneau', 'date', 'type_session')
-            ->with(['groupe', 'formateur', 'module', 'salle'])
-            ->when($centreId, function ($q) use ($centreId) {
-                $q->whereHas('groupe', function ($g) use ($centreId) {
-                    $g->where('centre_id', $centreId);
+        $cacheKey = 'timetable_centre_' . ($centreId ?? 'all') . '_' . $date;
+
+        $timetable = Cache::remember($cacheKey, 3600, function() use ($centreId, $date) {
+            return EmploiDuTemps::select('id', 'groupe_id', 'formateur_id', 'module_id', 'salle_id', 'jour', 'creneau', 'date', 'type_session')
+                ->with(['groupe', 'formateur', 'module', 'salle'])
+                ->when($centreId, function ($q) use ($centreId) {
+                    $q->whereHas('groupe', function ($g) use ($centreId) {
+                        $g->where('centre_id', $centreId);
+                    });
+                })
+                ->whereDate('date', $date)
+                ->get()
+                ->map(function ($emploi) {
+                    if ($emploi->groupe && $emploi->groupe->centre) {
+                        $emploi->groupe->display_name = strtoupper($emploi->groupe->centre->shortName) . ' - ' . $emploi->groupe->nomGroupe;
+                    }
+                    return $emploi;
                 });
-            })
-            ->whereDate('date', $date)
-            ->get()
-            ->map(function ($emploi) {
-                if ($emploi->groupe && $emploi->groupe->centre) {
-                    $emploi->groupe->display_name = strtoupper($emploi->groupe->centre->shortName) . ' - ' . $emploi->groupe->nomGroupe;
-                }
-                return $emploi;
-            });
+        });
 
         return response()->json($timetable);
     }
@@ -77,10 +83,12 @@ class EmploiDuTempsController extends Controller
      */
     public function modulesForGroupe($groupeId)
     {
-        $modules = \App\Models\Module::whereHas('groupes', function ($q) use ($groupeId) {
-            $q->where('groupes.id', $groupeId);
-        })->orderBy('codeModule')->get(['id', 'codeModule', 'nomModule', 'volumeHoraire', 'advancement']);
-
+        $cacheKey = 'modules_groupe_' . $groupeId;
+        $modules = Cache::remember($cacheKey, 43200, function() use ($groupeId) {
+            return \App\Models\Module::whereHas('groupes', function ($q) use ($groupeId) {
+                $q->where('groupes.id', $groupeId);
+            })->orderBy('codeModule')->get(['id', 'codeModule', 'nomModule', 'volumeHoraire', 'advancement']);
+        });
         return response()->json(['data' => $modules]);
     }
 
@@ -90,22 +98,15 @@ class EmploiDuTempsController extends Controller
      */
     public function getFormateursForGroupe($groupeId)
     {
-        $groupe = Groupe::with('modules')->findOrFail($groupeId);
-        $groupModuleIds = $groupe->modules->pluck('id');
-
-        if ($groupModuleIds->isEmpty()) {
-            return response()->json(['data' => []]);
-        }
-
-        $formateurs = Formateur::whereHas('modules', function ($query) use ($groupModuleIds) {
-            $query->whereIn('modules.id', $groupModuleIds);
-        })
-            ->distinct()
-            ->orderBy('nom')
-            ->orderBy('prenom')
-            ->get(['id', 'nom', 'prenom', 'specialite']);
-
-        return response()->json(['data' => $formateurs]);
+        $cacheKey = 'formateurs_for_groupe_' . $groupeId;
+        return response()->json(['data' => Cache::remember($cacheKey, 43200, function() use ($groupeId) {
+            $groupe = Groupe::with('modules')->findOrFail($groupeId);
+            $groupModuleIds = $groupe->modules->pluck('id');
+            if ($groupModuleIds->isEmpty()) return [];
+            return Formateur::whereHas('modules', function ($query) use ($groupModuleIds) {
+                $query->whereIn('modules.id', $groupModuleIds);
+            })->distinct()->orderBy('nom')->orderBy('prenom')->get(['id', 'nom', 'prenom', 'specialite'])->toArray();
+        })]);
     }
 
     /**
@@ -152,10 +153,10 @@ class EmploiDuTempsController extends Controller
      */
     public function getGroupesForFormateur($formateurId)
     {
-        Formateur::findOrFail($formateurId);
-
-        $groupes = Groupe::query()
-            ->where(function ($query) use ($formateurId) {
+        $cacheKey = 'groupes_for_formateur_' . $formateurId;
+        return response()->json(['data' => Cache::remember($cacheKey, 43200, function() use ($formateurId) {
+            Formateur::findOrFail($formateurId);
+            return Groupe::query()->where(function ($query) use ($formateurId) {
                 $query->whereHas('modules', function ($moduleQuery) use ($formateurId) {
                     $moduleQuery->whereHas('formateurs', function ($formateurQuery) use ($formateurId) {
                         $formateurQuery->where('formateurs.id', $formateurId);
@@ -163,11 +164,8 @@ class EmploiDuTempsController extends Controller
                 })->orWhereHas('emplois', function ($emploiQuery) use ($formateurId) {
                     $emploiQuery->where('formateur_id', $formateurId);
                 });
-            })
-            ->orderBy('nomGroupe')
-            ->get(['id', 'nomGroupe', 'filiere', 'centre_id']);
-
-        return response()->json(['data' => $groupes]);
+            })->orderBy('nomGroupe')->get(['id', 'nomGroupe', 'filiere', 'centre_id'])->toArray();
+        })]);
     }
 
     /**
@@ -184,37 +182,40 @@ class EmploiDuTempsController extends Controller
             return response()->json(['data' => []]);
         }
 
-        if (!Groupe::where('id', $groupeId)->exists()) {
-            return response()->json(['data' => []]);
-        }
+        $cacheKey = 'modules_formateur_groupe_'.$formateurId.'_'.$groupeId;
+        return response()->json(['data' => Cache::remember($cacheKey, 43200, function() use ($formateurId, $groupeId) {
+            if (!Groupe::where('id', $groupeId)->exists()) {
+                return [];
+            }
 
-        $byCode = fn ($q) => $q->orderBy('codeModule')->get(['id', 'codeModule', 'nomModule']);
+            $byCode = fn ($q) => $q->orderBy('codeModule')->get(['id', 'codeModule', 'nomModule'])->toArray();
 
-        $intersection = Module::query()
-            ->whereHas('formateurs', fn ($query) => $query->where('formateurs.id', $formateurId))
-            ->whereHas('groupes', fn ($query) => $query->where('groupes.id', $groupeId));
+            $intersection = Module::query()
+                ->whereHas('formateurs', fn ($query) => $query->where('formateurs.id', $formateurId))
+                ->whereHas('groupes', fn ($query) => $query->where('groupes.id', $groupeId));
 
-        $modules = $byCode($intersection);
-        if ($modules->isNotEmpty()) {
-            return response()->json(['data' => $modules]);
-        }
+            $modules = $byCode($intersection);
+            if (!empty($modules)) {
+                return $modules;
+            }
 
-        $groupOnly = Module::query()
-            ->whereHas('groupes', fn ($query) => $query->where('groupes.id', $groupeId));
+            $groupOnly = Module::query()
+                ->whereHas('groupes', fn ($query) => $query->where('groupes.id', $groupeId));
 
-        $modules = $byCode($groupOnly);
-        if ($modules->isNotEmpty()) {
-            return response()->json(['data' => $modules]);
-        }
+            $modules = $byCode($groupOnly);
+            if (!empty($modules)) {
+                return $modules;
+            }
 
-        $formateurOnly = Module::query()
-            ->whereHas('formateurs', fn ($query) => $query->where('formateurs.id', $formateurId));
+            $formateurOnly = Module::query()
+                ->whereHas('formateurs', fn ($query) => $query->where('formateurs.id', $formateurId));
 
-        return response()->json(['data' => $byCode($formateurOnly)]);
+            return $byCode($formateurOnly);
+        })]);
+
     }
 
     /**
-     * Get available rooms for a specific date/day/slot.
      * GET /api/salles/disponibles?date=YYYY-MM-DD&jour=Lundi&seance=S1[&exclude_emploi_id=1]
      */
     public function getSallesDisponibles(Request $request)
@@ -226,22 +227,26 @@ class EmploiDuTempsController extends Controller
             'exclude_emploi_id' => ['nullable', 'integer'],
         ]);
 
-        $occupied = EmploiDuTemps::query()
-            ->whereDate('date', $validated['date'])
-            ->where('jour', $validated['jour'])
-            ->where('creneau', $validated['seance'])
-            ->when(
-                !empty($validated['exclude_emploi_id']),
-                fn ($q) => $q->where('id', '!=', $validated['exclude_emploi_id'])
-            )
-            ->whereNotNull('salle_id')
-            ->pluck('salle_id')
-            ->toArray();
+        $cacheKey = 'salles_disponibles_' . $validated['date'] . '_' . $validated['jour'] . '_' . $validated['seance'] . '_' . ($validated['exclude_emploi_id'] ?? 'none');
 
-        $salles = Salle::query()
-            ->when(!empty($occupied), fn ($q) => $q->whereNotIn('id', $occupied))
-            ->orderBy('nomSalle')
-            ->get();
+        $salles = Cache::remember($cacheKey, 1800, function() use ($validated) {
+            $occupied = EmploiDuTemps::query()
+                ->whereDate('date', $validated['date'])
+                ->where('jour', $validated['jour'])
+                ->where('creneau', $validated['seance'])
+                ->when(
+                    !empty($validated['exclude_emploi_id']),
+                    fn ($q) => $q->where('id', '!=', $validated['exclude_emploi_id'])
+                )
+                ->whereNotNull('salle_id')
+                ->pluck('salle_id')
+                ->toArray();
+
+            return Salle::query()
+                ->when(!empty($occupied), fn ($q) => $q->whereNotIn('id', $occupied))
+                ->orderBy('nomSalle')
+                ->get();
+        });
 
         return response()->json($salles);
     }
@@ -469,6 +474,40 @@ class EmploiDuTempsController extends Controller
             }
 
             DB::commit();
+
+            // Clear related caches
+            foreach ($formateurIds as $formateurId) {
+                Cache::forget('timetable_formateur_' . $formateurId . '_' . $date);
+                Cache::forget('groupes_for_formateur_' . $formateurId);
+            }
+            // Clear centre caches (since formateur changes affect centre views)
+            Cache::forget('timetable_centre_all_' . $date);
+            // Clear salle availability caches for this date
+            Cache::forget('salles_disponibles_' . $date . '_Lundi_S1_none');
+            Cache::forget('salles_disponibles_' . $date . '_Lundi_S2_none');
+            Cache::forget('salles_disponibles_' . $date . '_Lundi_S3_none');
+            Cache::forget('salles_disponibles_' . $date . '_Lundi_S4_none');
+            Cache::forget('salles_disponibles_' . $date . '_Mardi_S1_none');
+            Cache::forget('salles_disponibles_' . $date . '_Mardi_S2_none');
+            Cache::forget('salles_disponibles_' . $date . '_Mardi_S3_none');
+            Cache::forget('salles_disponibles_' . $date . '_Mardi_S4_none');
+            Cache::forget('salles_disponibles_' . $date . '_Mercredi_S1_none');
+            Cache::forget('salles_disponibles_' . $date . '_Mercredi_S2_none');
+            Cache::forget('salles_disponibles_' . $date . '_Mercredi_S3_none');
+            Cache::forget('salles_disponibles_' . $date . '_Mercredi_S4_none');
+            Cache::forget('salles_disponibles_' . $date . '_Jeudi_S1_none');
+            Cache::forget('salles_disponibles_' . $date . '_Jeudi_S2_none');
+            Cache::forget('salles_disponibles_' . $date . '_Jeudi_S3_none');
+            Cache::forget('salles_disponibles_' . $date . '_Jeudi_S4_none');
+            Cache::forget('salles_disponibles_' . $date . '_Vendredi_S1_none');
+            Cache::forget('salles_disponibles_' . $date . '_Vendredi_S2_none');
+            Cache::forget('salles_disponibles_' . $date . '_Vendredi_S3_none');
+            Cache::forget('salles_disponibles_' . $date . '_Vendredi_S4_none');
+            Cache::forget('salles_disponibles_' . $date . '_Samedi_S1_none');
+            Cache::forget('salles_disponibles_' . $date . '_Samedi_S2_none');
+            Cache::forget('salles_disponibles_' . $date . '_Samedi_S3_none');
+            Cache::forget('salles_disponibles_' . $date . '_Samedi_S4_none');
+
             return response()->json(['success' => true, 'message' => 'Timetable saved successfully']);
 
         } catch (\Exception $e) {
@@ -560,6 +599,19 @@ class EmploiDuTempsController extends Controller
             }
             
             DB::commit();
+
+            // Clear related caches
+            Cache::forget('timetable_centre_' . ($centreId ?? 'all') . '_' . $date);
+            Cache::forget('emploi_groupe_' . ($centreId ?? 'all') . '_' . $date);
+            // Clear salle availability caches for this date
+            $jours = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
+            $seances = ['S1', 'S2', 'S3', 'S4'];
+            foreach ($jours as $jour) {
+                foreach ($seances as $seance) {
+                    Cache::forget('salles_disponibles_' . $date . '_' . $jour . '_' . $seance . '_none');
+                }
+            }
+
             return response()->json(['success' => true, 'message' => 'Timetable saved successfully']);
             
         } catch (\Exception $e) {
@@ -575,7 +627,30 @@ class EmploiDuTempsController extends Controller
     public function destroy($id)
     {
         try {
-            EmploiDuTemps::findOrFail($id)->delete();
+            $emploi = EmploiDuTemps::findOrFail($id);
+            $date = $emploi->date;
+            $formateurId = $emploi->formateur_id;
+            $groupe = $emploi->groupe;
+            $centreId = $groupe ? $groupe->centre_id : null;
+
+            $emploi->delete();
+
+            // Clear related caches
+            if ($formateurId) {
+                Cache::forget('timetable_formateur_' . $formateurId . '_' . $date);
+                Cache::forget('groupes_for_formateur_' . $formateurId);
+            }
+            Cache::forget('timetable_centre_' . ($centreId ?? 'all') . '_' . $date);
+            Cache::forget('emploi_groupe_' . ($centreId ?? 'all') . '_' . $date);
+            // Clear salle availability caches for this date
+            $jours = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
+            $seances = ['S1', 'S2', 'S3', 'S4'];
+            foreach ($jours as $jour) {
+                foreach ($seances as $seance) {
+                    Cache::forget('salles_disponibles_' . $date . '_' . $jour . '_' . $seance . '_none');
+                }
+            }
+
             return response()->json(['message' => 'Entry deleted']);
         } catch (\Exception $e) {
             return response()->json(['error' => $e->getMessage()], 500);
@@ -595,25 +670,28 @@ class EmploiDuTempsController extends Controller
 
         $centreId = $validated['centre_id'] ?? null;
         $date = $validated['date'];
+        $cacheKey = 'emploi_groupe_' . ($centreId ?? 'all') . '_' . $date;
 
-        // Optimized query - select only needed columns
-        $query = EmploiDuTemps::query()
-            ->select(['id', 'groupe_id', 'formateur_id', 'module_id', 'salle_id', 'jour', 'creneau', 'date', 'type_session'])
-            ->with([
-                'groupe:id,nomGroupe,centre_id',
-                'formateur:id,nom,prenom',
-                'module:id,codeModule',
-                'salle:id,nomSalle',
-            ])
-            ->whereDate('date', $date);
+        $timetable = Cache::remember($cacheKey, 3600, function() use ($centreId, $date) {
+            // Optimized query - select only needed columns
+            $query = EmploiDuTemps::query()
+                ->select(['id', 'groupe_id', 'formateur_id', 'module_id', 'salle_id', 'jour', 'creneau', 'date', 'type_session'])
+                ->with([
+                    'groupe:id,nomGroupe,centre_id',
+                    'formateur:id,nom,prenom',
+                    'module:id,codeModule',
+                    'salle:id,nomSalle',
+                ])
+                ->whereDate('date', $date);
 
-        if ($centreId) {
-            $query->whereHas('groupe', function ($g) use ($centreId) {
-                $g->where('centre_id', $centreId);
-            });
-        }
+            if ($centreId) {
+                $query->whereHas('groupe', function ($g) use ($centreId) {
+                    $g->where('centre_id', $centreId);
+                });
+            }
 
-        $timetable = $query->get();
+            return $query->get();
+        });
 
         return response()->json(['data' => $timetable]);
     }
@@ -760,6 +838,19 @@ class EmploiDuTempsController extends Controller
             }
 
             DB::commit();
+
+            // Clear related caches
+            Cache::forget('timetable_centre_' . ($centreId ?? 'all') . '_' . $date);
+            Cache::forget('emploi_groupe_' . ($centreId ?? 'all') . '_' . $date);
+            // Clear salle availability caches for this date
+            $jours = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
+            $seances = ['S1', 'S2', 'S3', 'S4'];
+            foreach ($jours as $jour) {
+                foreach ($seances as $seance) {
+                    Cache::forget('salles_disponibles_' . $date . '_' . $jour . '_' . $seance . '_none');
+                }
+            }
+
             return response()->json(['success' => true, 'message' => 'Emploi du temps chargé avec succès!']);
         } catch (\Throwable $e) {
             DB::rollBack();
@@ -823,23 +914,13 @@ class EmploiDuTempsController extends Controller
 
         if ($type === 'centre') {
             // Get all groups for the centre, using the same logic as the groups API
-            $query = Groupe::query()->where('centre_id', $centreId);
+            $query = Groupe::query()->where('centre_id', $centreId)->orderBy('id', 'desc');
             $groupes = $query->with(['centre','modules','emplois'])->get()->map(function (Groupe $groupe) {
                 $groupe->load(['modules', 'emplois']);
                 $groupe->avancement;
                 $groupe->advancement;
                 return $groupe;
             });
-
-            // Apply selective reverse for CFIFJ
-            $groupes = $groupes->groupBy(function ($groupe) {
-                return $groupe->centre ? $groupe->centre->shortName : '';
-            })->map(function ($groups, $shortName) {
-                if ($shortName === 'CFIFJ') {
-                    return $groups->reverse();
-                }
-                return $groups;
-            })->flatten();
 
             if ($groupeId) {
                 $groupes = $groupes->where('id', $groupeId);

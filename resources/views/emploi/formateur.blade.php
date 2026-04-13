@@ -119,6 +119,35 @@ function showToast(message, type = 'success') {
                 </div>
             </div>
         </div>
+
+        {{-- Formateur Filter --}}
+        <div class="mt-3 px-4 py-2 bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg border border-green-200">
+            <div class="flex items-center gap-3">
+                <svg class="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
+                </svg>
+                <span class="text-sm font-semibold text-gray-800">Filtrer par formateur:</span>
+                <select id="formateurFilter" onchange="window.formateurTimetable.onFormateurFilterChanged()" class="px-3 py-1.5 bg-white border border-green-300 rounded-md text-sm font-medium text-gray-700 focus:ring-2 focus:ring-green-500 focus:border-green-500">
+                    <option value="all">Tous les formateurs</option>
+                </select>
+            </div>
+        </div>
+
+        {{-- Search Bar --}}
+        <div class="mt-3 px-4 py-2 bg-gradient-to-r from-purple-50 to-indigo-50 rounded-lg border border-purple-200">
+            <div class="flex items-center gap-3">
+                <svg class="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                </svg>
+                <span class="text-sm font-semibold text-gray-800">Rechercher:</span>
+                <input 
+                    type="text" 
+                    id="searchInput"
+                    placeholder="Tapez un nom de formateur ou groupe..."
+                    oninput="window.formateurTimetable.onSearchInput()"
+                    class="flex-1 px-3 py-1.5 bg-white border border-purple-300 rounded-md text-sm text-gray-700 placeholder-gray-400 focus:ring-2 focus:ring-purple-500 focus:border-purple-500">
+            </div>
+        </div>
     </div>
 
     {{-- Timetable --}}
@@ -134,7 +163,7 @@ function showToast(message, type = 'success') {
             .edt-day-vendredi { background-color: #22c55e; }
             .edt-day-samedi { background-color: #ec4899; }
             .edt-table .slot-header { background: #f3f4f6; font-weight: 600; padding: 3px 1px; font-size: 10px; color: #374151; }
-            .edt-table .trainer-cell { width: 140px; min-width: 140px; background: #1e293b; color: white; font-weight: 700; font-size: 10px; padding: 6px 8px; vertical-align: middle; text-align: left; white-space: normal; }
+            .edt-table .trainer-cell { width: 170px; min-width: 170px; max-width: 170px; background: #1e293b; color: white; font-weight: 700; font-size: 10px; padding: 6px 8px; vertical-align: middle; text-align: left; white-space: normal; word-break: break-word; overflow-wrap: break-word; }
             .edt-table .type-cell { background: #e2e8f0; font-weight: 600; font-size: 9px; color: #475569; padding: 1px 2px; white-space: nowrap; }
             .edt-table .data-cell { padding: 0; height: 28px; cursor: pointer; position: relative; transition: background-color 0.1s; }
             .edt-table .data-cell:hover { background-color: #eff6ff; }
@@ -144,7 +173,7 @@ function showToast(message, type = 'success') {
             .edt-cell-salle-teams { background-color: transparent; color: blue; }
             .edt-select { width: 100%; height: 100%; border: none; font-size: 9px; padding: 0 1px; background: transparent; cursor: pointer; text-align: center; appearance: none; -webkit-appearance: none; }
             .edt-select:focus { outline: 2px solid #3b82f6; outline-offset: -1px; background: white; }
-            .edt-table .formateur-col { width: 32px; }
+            .edt-table .formateur-col { width: 170px; min-width: 170px; max-width: 170px; }
             .edt-table .type-col { width: 42px; }
         </style>
 
@@ -185,6 +214,8 @@ window.formateurTimetable = {
     },
 
     selectedDate: '',
+    selectedFormateur: 'all', // Add formateur filter
+    searchTerm: '', // Add search term
     timetableExists: false,
     timetableId: null,
     lastSaved: null,
@@ -260,6 +291,17 @@ window.formateurTimetable = {
         this.selectedDate = this.formatLocalDate(this.parseLocalDate(document.getElementById('selectedDate').value));
         document.getElementById('selectedDate').value = this.selectedDate;
         this.loadTimetableForDate();
+    },
+
+    onFormateurFilterChanged: function() {
+        this.selectedFormateur = document.getElementById('formateurFilter').value;
+        this.renderTable();
+        this.loadTimetableForDate();
+    },
+
+    onSearchInput: function() {
+        this.searchTerm = document.getElementById('searchInput').value.toLowerCase().trim();
+        this.renderTable();
     },
 
     getOccupiedSalleIdsForSlot: function(dayIdx, slotIdx, excludeTrainerId) {
@@ -340,18 +382,39 @@ window.formateurTimetable = {
         const tbody = document.getElementById('timetableBody');
         tbody.innerHTML = '';
         
-        if (!this.trainers.length) {
+        // Filter trainers based on selected formateur
+        let filteredTrainers = this.selectedFormateur === 'all' 
+            ? this.trainers 
+            : this.trainers.filter(t => String(t.id) === this.selectedFormateur);
+        
+        // Apply search filter if there's a search term
+        if (this.searchTerm) {
+            filteredTrainers = filteredTrainers.filter(trainer => {
+                const trainerName = trainer.name.toLowerCase();
+                // Check if trainer name matches
+                if (trainerName.includes(this.searchTerm)) return true;
+                
+                // Check if any of their groups match the search
+                return this.trainerGroups[trainer.id]?.some(group => 
+                    group.label.toLowerCase().includes(this.searchTerm)
+                );
+            });
+        }
+        
+        if (!filteredTrainers.length) {
             const tr = document.createElement('tr');
             const td = document.createElement('td');
             td.colSpan = 26;
             td.className = 'p-3 text-sm text-gray-500';
-            td.textContent = 'Aucun formateur trouvé. Veuillez vérifier vos données et recharger la page.';
+            td.textContent = this.selectedFormateur === 'all' && !this.searchTerm
+                ? 'Aucun formateur trouvé. Veuillez vérifier vos données et recharger la page.'
+                : 'Aucun formateur trouvé pour ce filtre.';
             tr.appendChild(td);
             tbody.appendChild(tr);
             return;
         }
 
-        this.trainers.forEach(trainer => {
+        filteredTrainers.forEach(trainer => {
             this.rowTypes.forEach((rowType, rIdx) => {
                 const tr = document.createElement('tr');
                 
@@ -522,6 +585,16 @@ window.formateurTimetable = {
                 modules: (f.modules || []).map(m => m.codeModule || m.nomModule || `#${m.id}`),
             }));
             this.trainers = arr;
+            
+            // Populate formateur filter dropdown
+            const filterSelect = document.getElementById('formateurFilter');
+            filterSelect.innerHTML = '<option value="all">Tous les formateurs</option>';
+            this.trainers.forEach(trainer => {
+                const option = document.createElement('option');
+                option.value = trainer.id;
+                option.textContent = trainer.name;
+                filterSelect.appendChild(option);
+            });
         } catch (e) {
             console.error('Failed to load trainers:', e);
             this.trainers = [];
@@ -756,8 +829,13 @@ window.formateurTimetable = {
             // Track if any entries were loaded
             let totalEntriesLoaded = 0;
             
-            // For each trainer, load their data
-            for (const trainer of this.trainers) {
+            // Filter trainers based on selected formateur
+            const filteredTrainers = this.selectedFormateur === 'all' 
+                ? this.trainers 
+                : this.trainers.filter(t => String(t.id) === this.selectedFormateur);
+            
+            // For each filtered trainer, load their data
+            for (const trainer of filteredTrainers) {
                 try {
                     const response = await fetch(`/api/timetable-formateur/${this.selectedDate}?formateur_id=${trainer.id}`);
                     
