@@ -409,13 +409,6 @@ const registerFn = () => {
                     return ia - ib;
                 });
                 this.niveaux = niveaux;
-                if (!this.filterNiveau) {
-                    if (this.niveaux.includes('3')) {
-                        this.filterNiveau = '3';
-                    } else if (this.niveaux.length > 0) {
-                        this.filterNiveau = this.niveaux[0];
-                    }
-                }
             } catch (e) {
                 console.error('Could not load niveaux', e);
                 this.niveaux = [];
