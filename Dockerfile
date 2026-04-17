@@ -1,31 +1,34 @@
-FROM php:8.3-cli
+FROM php:8.3-fpm-alpine
 
-# Set working directory
-WORKDIR /app
-
-# Install system dependencies and PHP extensions
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
+# Install system dependencies
+RUN apk add --no-cache \
     curl \
+    git \
     zip \
-    unzip \
     libpng-dev \
-    libfreetype6-dev \
-    libjpeg62-turbo-dev \
-    libzip-dev \
-    && docker-php-ext-configure gd --with-freetype --with-jpeg \
+    freetype-dev \
+    libjpeg-turbo-dev \
+    oniguruma-dev \
+    libxml2-dev \
+    sqlite-dev \
+    nginx \
+    supervisor
+
+# Configure and install PHP extensions
+RUN docker-php-ext-configure gd --with-freetype --with-jpeg \
     && docker-php-ext-install -j$(nproc) \
     gd \
     pdo \
     pdo_mysql \
     mbstring \
     zip \
-    opcache \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+    xml \
+    opcache
 
 # Install Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
+
+WORKDIR /app
 
 # Copy application files
 COPY . /app
@@ -36,19 +39,27 @@ RUN chown -R www-data:www-data /app \
     && chmod -R 775 /app/storage \
     && chmod -R 775 /app/bootstrap/cache
 
-# Install dependencies
+# Install PHP dependencies
 RUN composer install --no-dev --optimize-autoloader --prefer-dist --no-interaction
 
 # Generate caches
 RUN php artisan config:cache \
-    && php artisan view:cache
+    && php artisan view:cache \
+    && php artisan route:cache
 
-# Expose port (Railway will override this)
+# Setup Nginx
+RUN mkdir -p /run/nginx
+COPY nginx.conf /etc/nginx/nginx.conf
+
+# Setup Supervisor
+COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+
+# Create necessary directories
+RUN mkdir -p /var/log/supervisor
+
 EXPOSE 8000
 
-# Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
+    CMD curl -f http://localhost:8000/ || exit 1
 
-# Start Laravel
-CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=${PORT:-8000}"]
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
