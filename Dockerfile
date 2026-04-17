@@ -14,7 +14,8 @@ RUN apk add --no-cache \
     freetype-dev \
     oniguruma-dev \
     libxml2-dev \
-    zlib-dev
+    zlib-dev \
+    libzip-dev
 
 # Install PHP extensions
 RUN docker-php-ext-configure gd --with-freetype --with-jpeg && \
@@ -57,7 +58,8 @@ RUN apk add --no-cache \
     libjpeg-turbo \
     freetype \
     oniguruma \
-    libxml2
+    libxml2 \
+    libzip
 
 # Copy PHP extensions from builder
 COPY --from=builder /usr/local/lib/php/extensions/ /usr/local/lib/php/extensions/
