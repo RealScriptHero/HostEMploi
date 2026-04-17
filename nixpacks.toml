@@ -9,11 +9,14 @@ nixPkgs = [
   "php83Extensions.xml",
   "php83Extensions.zip",
   "php83Extensions.curl",
-  "php83Extensions.openssl"
+  "php83Extensions.openssl",
+  "php83Extensions.opcache"
 ]
+aptPkgs = ["libpng-dev"]
 
 [phases.install]
 cmds = [
+  "composer config platform.ext-gd true",
   "composer install --no-dev --optimize-autoloader --prefer-dist --no-interaction"
 ]
 
