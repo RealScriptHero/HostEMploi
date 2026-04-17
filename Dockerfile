@@ -1,6 +1,50 @@
+# Stage 1: Builder
+FROM php:8.3-fpm-alpine AS builder
+
+RUN apk add --no-cache \
+    autoconf \
+    build-base \
+    curl \
+    git \
+    zip \
+    unzip \
+    ca-certificates \
+    libpng-dev \
+    libjpeg-turbo-dev \
+    freetype-dev \
+    oniguruma-dev \
+    libxml2-dev \
+    zlib-dev
+
+# Install PHP extensions
+RUN docker-php-ext-configure gd --with-freetype --with-jpeg && \
+    docker-php-ext-install -j$(nproc) \
+    gd \
+    pdo \
+    pdo_mysql \
+    mbstring \
+    zip \
+    xml \
+    opcache
+
+# Install Composer
+COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
+
+WORKDIR /app
+
+# Copy application files
+COPY . /app
+
+# Install PHP dependencies
+RUN composer install --no-dev --optimize-autoloader --prefer-dist --no-interaction && \
+    php artisan config:cache && \
+    php artisan view:cache && \
+    php artisan route:cache
+
+# Stage 2: Runtime
 FROM php:8.3-fpm-alpine
 
-# Install system dependencies with all required build tools and libraries
+# Install only runtime dependencies (no build tools)
 RUN apk add --no-cache \
     curl \
     git \
@@ -13,48 +57,22 @@ RUN apk add --no-cache \
     libjpeg-turbo \
     freetype \
     oniguruma \
-    libxml2 && \
-    apk add --no-cache --virtual .build-deps \
-    libpng-dev \
-    libjpeg-turbo-dev \
-    freetype-dev \
-    oniguruma-dev \
-    libxml2-dev \
-    zlib-dev
+    libxml2
 
-# Configure and install PHP extensions
-RUN docker-php-ext-configure gd --with-freetype --with-jpeg && \
-    docker-php-ext-install -j$(nproc) \
-    gd \
-    pdo \
-    pdo_mysql \
-    mbstring \
-    zip \
-    xml \
-    opcache && \
-    apk del --no-cache .build-deps
-
-# Install Composer
-COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
+# Copy PHP extensions from builder
+COPY --from=builder /usr/local/lib/php/extensions/ /usr/local/lib/php/extensions/
+COPY --from=builder /usr/local/etc/php/conf.d/ /usr/local/etc/php/conf.d/
 
 WORKDIR /app
 
-# Copy application files
-COPY . /app
+# Copy application from builder
+COPY --from=builder /app /app
 
 # Set permissions
-RUN chown -R www-data:www-data /app \
-    && chmod -R 755 /app \
-    && chmod -R 775 /app/storage \
-    && chmod -R 775 /app/bootstrap/cache
-
-# Install PHP dependencies
-RUN composer install --no-dev --optimize-autoloader --prefer-dist --no-interaction
-
-# Generate caches
-RUN php artisan config:cache \
-    && php artisan view:cache \
-    && php artisan route:cache
+RUN chown -R www-data:www-data /app && \
+    chmod -R 755 /app && \
+    chmod -R 775 /app/storage && \
+    chmod -R 775 /app/bootstrap/cache
 
 # Setup Nginx
 RUN mkdir -p /run/nginx
