@@ -32,19 +32,21 @@ Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
 });
 
 // Public API routes for data fetching and CRUD operations
-Route::apiResources([
-    'modules' => ModuleController::class,
-    'centres' => CentreController::class,
-    'salles' => SalleController::class,
-    'groupes' => GroupeController::class,
-    'formateurs' => FormateurController::class,
-    'emploi-du-temps' => EmploiDuTempsController::class,
-    'stages' => StageController::class,
-    'absence-formateurs' => AbsenceFormateurController::class,
-    'absence-groupes' => AbsenceGroupeController::class,
-    'avancements' => AvancementController::class,
-    'utilisateurs' => UtilisateurController::class,
-]);
+Route::name('api.')->group(function () {
+    Route::apiResources([
+        'modules' => ModuleController::class,
+        'centres' => CentreController::class,
+        'salles' => SalleController::class,
+        'groupes' => GroupeController::class,
+        'formateurs' => FormateurController::class,
+        'emploi-du-temps' => EmploiDuTempsController::class,
+        'stages' => StageController::class,
+        'absence-formateurs' => AbsenceFormateurController::class,
+        'absence-groupes' => AbsenceGroupeController::class,
+        'avancements' => AvancementController::class,
+        'utilisateurs' => UtilisateurController::class,
+    ]);
+});
 
 // Custom routes
 Route::get('/modules/by-groupe/{groupeId}', [ModuleController::class, 'getByGroupe']);
