@@ -27,7 +27,9 @@ class EmploiDuTempsController extends Controller
      */
     private function getTypeSession($salleId): string
     {
-        return $salleId === 'teams' ? 'distance' : 'presentiel';
+        if ($salleId === 'teams') return 'distance';
+        if ($salleId === 'efm') return 'efm';
+        return 'presentiel';
     }
 
     /**
@@ -401,7 +403,7 @@ class EmploiDuTempsController extends Controller
                     // Handle Teams selection
                     $salleId = $entry['salle_id'] ?? null;
                     $incomingType = $entry['type_session'] ?? null;
-                    $typeSession = in_array($incomingType, ['distance', 'presentiel'], true)
+                    $typeSession = in_array($incomingType, ['distance', 'presentiel', 'efm'], true)
                         ? $incomingType
                         : $this->getTypeSession($salleId);
 
@@ -715,7 +717,7 @@ class EmploiDuTempsController extends Controller
             'entries.*.formateur_id' => ['nullable', 'integer', 'exists:formateurs,id'],
             'entries.*.module_id' => ['nullable', 'integer', 'exists:modules,id'],
             'entries.*.salle_id' => ['nullable'], // Can be null, numeric, or 'teams'
-            'entries.*.type_session' => ['nullable', 'in:presentiel,distance'],
+            'entries.*.type_session' => ['nullable', 'in:presentiel,distance,efm'],
             'entries.*.jour' => ['required_with:entries', 'string', 'in:Lundi,Mardi,Mercredi,Jeudi,Vendredi,Samedi'],
             'entries.*.creneau' => ['required_with:entries', 'string', 'in:S1,S2,S3,S4'],
             'entries.*.date' => ['required_with:entries', 'date'],
@@ -804,20 +806,36 @@ class EmploiDuTempsController extends Controller
 
                 $rawSalle = $entry['salle_id'] ?? null;
                 $incomingType = $entry['type_session'] ?? null;
-                $typeSession = in_array($incomingType, ['distance', 'presentiel'], true)
+                $typeSession = in_array($incomingType, ['distance', 'presentiel', 'efm'], true)
                     ? $incomingType
                     : $this->getTypeSession($rawSalle);
 
                 $hasPayload = ! empty($entry['formateur_id'])
                     || ! empty($entry['module_id'])
                     || ! empty($rawSalle)
-                    || $typeSession === 'distance';
+                    || $typeSession === 'distance'
+                    || $typeSession === 'efm';
 
                 if (! $hasPayload) {
                     continue;
                 }
 
-                $salleId = $rawSalle;
+                $salleId = null;
+                if ($rawSalle) {
+                    if (is_numeric($rawSalle)) {
+                        $salleId = (int) $rawSalle;
+                    } elseif ($rawSalle === 'teams') {
+                        // handled by typeSession
+                    } else {
+                        // Custom salle name like "EFM" - find or create salle
+                        $salle = Salle::firstOrCreate(
+                            ['nomSalle' => strtoupper($rawSalle)],
+                            ['nomSalle' => strtoupper($rawSalle), 'capacite' => 0, 'centre_id' => null]
+                        );
+                        $salleId = $salle->id;
+                    }
+                }
+
                 if ($typeSession === 'distance') {
                     $salleId = null;
                 }
@@ -891,7 +909,7 @@ class EmploiDuTempsController extends Controller
                 'S4' => '16h-18h30',
             ];
 
-            $query = EmploiDuTemps::with(['groupe.centre', 'formateur', 'module', 'salle'])
+            $query = EmploiDuTemps::with(['groupe.centre', 'formateur', 'module', 'salle.centre'])
                 ->whereDate('date', $date)
                 ->orderBy('groupe_id')
                 ->orderBy('jour')
@@ -953,7 +971,7 @@ class EmploiDuTempsController extends Controller
                 $rowsByParent[$parentKey]['cells']['module'][$key] = $emploi->module?->nomModule ?? '';
                 $rowsByParent[$parentKey]['cells']['salle'][$key] = $emploi->type_session === 'distance' || strtolower($emploi->salle?->nomSalle ?? '') === 'teams'
                     ? 'TEAMS'
-                    : ($emploi->salle?->display_name ?? '');
+                    : ($emploi->type_session === 'efm' ? 'EFM' : ($emploi->salle?->display_name ?? ''));
             }
 
             $spreadsheet = new Spreadsheet();
@@ -1007,6 +1025,12 @@ class EmploiDuTempsController extends Controller
             $teamsStyle = [
                 'font' => ['bold' => true, 'size' => 9, 'color' => ['argb' => 'FF2563EB']],
                 'fill' => ['fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID, 'startColor' => ['argb' => 'FFDBEAFE']],
+                'alignment' => ['horizontal' => \PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER, 'vertical' => \PhpOffice\PhpSpreadsheet\Style\Alignment::VERTICAL_CENTER, 'wrapText' => true],
+                'borders' => ['allBorders' => ['borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN, 'color' => ['argb' => 'FFCCCCCC']]],
+            ];
+            $efmStyle = [
+                'font' => ['bold' => true, 'size' => 9, 'color' => ['argb' => 'FFFFFFFF']],
+                'fill' => ['fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID, 'startColor' => ['argb' => 'FF22C55E']],
                 'alignment' => ['horizontal' => \PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER, 'vertical' => \PhpOffice\PhpSpreadsheet\Style\Alignment::VERTICAL_CENTER, 'wrapText' => true],
                 'borders' => ['allBorders' => ['borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN, 'color' => ['argb' => 'FFCCCCCC']]],
             ];
@@ -1108,6 +1132,8 @@ class EmploiDuTempsController extends Controller
 
                         if (strtoupper($salleValue) === 'TEAMS') {
                             $sheet->getStyle("{$letter}" . ($currentRow + 2))->applyFromArray($teamsStyle);
+                        } elseif (strtoupper($salleValue) === 'EFM') {
+                            $sheet->getStyle("{$letter}" . ($currentRow + 2))->applyFromArray($efmStyle);
                         }
                     }
                 }
@@ -1136,7 +1162,7 @@ class EmploiDuTempsController extends Controller
             $formateurs = \App\Models\Formateur::all();
             
             // Then get emplois for this date
-            $emplois = \App\Models\EmploiDuTemps::with(['groupe', 'module', 'salle', 'formateur'])
+            $emplois = \App\Models\EmploiDuTemps::with(['groupe', 'module', 'salle.centre', 'formateur'])
                 ->whereDate('date', $date)
                 ->get();
             
@@ -1194,6 +1220,12 @@ class EmploiDuTempsController extends Controller
             $teamsStyle = [
                 'font' => ['bold' => true, 'color' => ['argb' => 'FF2563EB'], 'size' => 9],
                 'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['argb' => 'FFDBEAFE']],
+                'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER, 'vertical' => Alignment::VERTICAL_CENTER],
+                'borders' => ['allBorders' => ['borderStyle' => Border::BORDER_THIN]]
+            ];
+            $efmStyle = [
+                'font' => ['bold' => true, 'color' => ['argb' => 'FFFFFFFF'], 'size' => 9],
+                'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['argb' => 'FF22C55E']],
                 'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER, 'vertical' => Alignment::VERTICAL_CENTER],
                 'borders' => ['allBorders' => ['borderStyle' => Border::BORDER_THIN]]
             ];
@@ -1333,6 +1365,9 @@ class EmploiDuTempsController extends Controller
                             if ($emp->type_session === 'distance') {
                                 $sheet->setCellValue("{$ltr}{$rowSalle}", 'TEAMS');
                                 $sheet->getStyle("{$ltr}{$rowSalle}")->applyFromArray($teamsStyle);
+                            } elseif ($emp->type_session === 'efm') {
+                                $sheet->setCellValue("{$ltr}{$rowSalle}", 'EFM');
+                                $sheet->getStyle("{$ltr}{$rowSalle}")->applyFromArray($efmStyle);
                             } else {
                                 $salleName = $emp->salle->display_name ?? '';
                                 $sheet->setCellValue("{$ltr}{$rowSalle}", $salleName);

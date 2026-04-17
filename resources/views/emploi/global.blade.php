@@ -176,6 +176,21 @@
 }
 .edt-select:focus { outline: 2px solid #6366f1; outline-offset: -2px; background: white; }
 
+.edt-select option {
+    background-color: white !important;
+    color: #374151 !important;
+}
+.edt-select option.edt-option-efm {
+    background-color: #28a745 !important;
+    color: white !important;
+    font-weight: 700 !important;
+}
+.edt-select option.edt-option-efm:hover,
+.edt-select option.edt-option-efm:checked {
+    background-color: #1f7a33 !important;
+    color: white !important;
+}
+
 .edt-col-group { width: 32px; }
 .edt-col-type  { width: 56px; }
 
@@ -364,7 +379,9 @@ document.addEventListener('alpine:init', () => {
     Alpine.data('groupeTimetable', () => ({
         // Helper to determine session type from salle_id
         getTypeSession(salleId) {
-            return salleId === 'teams' ? 'distance' : 'presentiel';
+            if (salleId === 'teams') return 'distance';
+            if (salleId === 'efm') return 'efm';
+            return 'presentiel';
         },
 
         selectedDate: '',
@@ -397,6 +414,18 @@ document.addEventListener('alpine:init', () => {
         tableBuilt: false,
         noGroupsRow: null,
         rowTypes: ['formateur', 'module', 'salle'],
+
+        updateSelectColor(select) {
+            if (select.value === 'efm') {
+                select.style.backgroundColor = '#28a745';
+                select.style.color = 'white';
+                select.style.fontWeight = 'bold';
+            } else {
+                select.style.backgroundColor = '';
+                select.style.color = '';
+                select.style.fontWeight = '';
+            }
+        },
 
         todayLocal() {
             const today = new Date();
@@ -596,9 +625,10 @@ document.addEventListener('alpine:init', () => {
                                         this.clearSalleFromOtherGroupesForSlot(d, s, groupId, v);
                                     }
                                     this.setCellValue(groupId, 'salle', d, s, v);
-                                    this.styleFilled(td, sel, 'salle', v);
                                     this.refreshSalleDropdownsForSlot(d, s);
                                 };
+                                this.updateSelectColor(sel);
+                                sel.addEventListener('change', () => this.updateSelectColor(sel));
                             } else {
                                 sel.onchange = (e) => {
                                     this.setCellValue(groupId, rowType, d, s, e.target.value);
@@ -714,7 +744,11 @@ document.addEventListener('alpine:init', () => {
                         }
                         
                         cellData.sel.value = value;
-                        this.styleFilled(cellData.td, cellData.sel, rowType, value);
+                        if (rowType === 'salle') {
+                            this.updateSelectColor(cellData.sel);
+                        } else {
+                            this.styleFilled(cellData.td, cellData.sel, rowType, value);
+                        }
                     });
                 });
 
@@ -770,8 +804,12 @@ document.addEventListener('alpine:init', () => {
                 const opt = document.createElement('option');
                 opt.value = o.value;
                 opt.textContent = o.text;
+                opt.style.backgroundColor = 'white';
+                opt.style.color = '#374151';
                 if (o.value === 'teams') {
                     opt.style.color = 'blue';
+                } else if (String(o.value).toLowerCase() === 'efm') {
+                    opt.classList.add('edt-option-efm');
                 }
                 sel.appendChild(opt);
             });
@@ -802,20 +840,19 @@ document.addEventListener('alpine:init', () => {
                 this.buildStaticTable();
             }
             this.updateRowVisibility();
-            return this.updateTableValues();
+            this.updateTableValues();
         },
 
         styleFilled(td, select, rowType, value) {
-            td.classList.remove('edt-filled-formateur', 'edt-filled-module', 'edt-filled-salle', 'edt-filled-salle-teams');
-            select.classList.remove('edt-filled-formateur', 'edt-filled-module', 'edt-filled-salle', 'edt-filled-salle-teams');
+            td.classList.remove('edt-filled-formateur', 'edt-filled-module', 'edt-filled-salle', 'edt-filled-salle-teams', 'edt-filled-salle-efm');
+            select.classList.remove('edt-filled-formateur', 'edt-filled-module', 'edt-filled-salle', 'edt-filled-salle-teams', 'edt-filled-salle-efm');
             select.style.color = '';
             select.style.backgroundColor = '';
             if (!value) return;
             if (rowType === 'salle' && value === 'teams') {
                 td.classList.add('edt-filled-salle-teams');
-                select.style.color = 'blue';
-                select.style.backgroundColor = 'transparent';
-                select.classList.remove('edt-filled-salle-teams');
+            } else if (rowType === 'salle' && value === 'efm') {
+                td.classList.remove('edt-filled-salle-teams', 'edt-filled-salle');
             } else {
                 td.classList.add('edt-filled-' + rowType);
                 select.classList.add('edt-filled-' + rowType);
@@ -1053,15 +1090,16 @@ document.addEventListener('alpine:init', () => {
                 .filter(s => !occupied.has(String(s.id)))
                 .map(s => ({ value: s.id, text: s.label }));
             
-            // Add Teams option at the beginning
+            // Add special options at the beginning
             return [
                 { value: 'teams', text: 'Teams(Distance)' },
+                { value: 'efm', text: 'EFM' },
                 ...salles
             ];
         },
 
         clearSalleFromOtherGroupesForSlot(dayIdx, slotIdx, excludeGroupeId, salleId) {
-            if (!salleId) return;
+            if (!salleId || salleId === 'teams' || salleId === 'efm') return; // Don't clear Teams or EFM as they are not physical salles
             const key = `${dayIdx}-${slotIdx}`;
             const sid = String(salleId);
             for (const gid of Object.keys(this.timetable || {})) {
@@ -1090,8 +1128,12 @@ document.addEventListener('alpine:init', () => {
                 const opt = document.createElement('option');
                 opt.value = String(o.value);
                 opt.textContent = o.text;
+                opt.style.backgroundColor = 'white';
+                opt.style.color = '#374151';
                 if (o.value === 'teams') {
                     opt.style.color = 'blue';
+                } else if (String(o.value).toLowerCase() === 'efm') {
+                    opt.classList.add('edt-option-efm');
                 }
                 salleSelect.appendChild(opt);
             });
@@ -1101,12 +1143,12 @@ document.addEventListener('alpine:init', () => {
             } else if (currentValue) {
                 this.setCellValue(groupeId, 'salle', dayIdx, slotIdx, '');
                 salleSelect.value = '';
-                const td = salleSelect.closest('td');
-                this.styleFilled(td, salleSelect, 'salle', '');
                 etToast('La salle n\'est plus disponible sur ce créneau', 'error');
             } else {
                 salleSelect.value = '';
             }
+            // Apply select color based on final value
+            this.updateSelectColor(salleSelect);
         },
 
         refreshSalleDropdownsForSlot(dayIdx, slotIdx) {
@@ -1284,6 +1326,8 @@ document.addEventListener('alpine:init', () => {
 
                 const salleValue = String(entry.type_session || '').toLowerCase() === 'distance'
                     ? 'teams'
+                    : String(entry.type_session || '').toLowerCase() === 'efm'
+                    ? 'efm'
                     : (entry.salle_id ? String(entry.salle_id) : '');
                 this.setCellValue(gid, 'salle', dayIdx, slotIdx, salleValue);
             });
@@ -1335,8 +1379,9 @@ document.addEventListener('alpine:init', () => {
                             } else if (type === 'module') {
                                 entriesMap[entryKey].module_id = value;
                             } else if (type === 'salle') {
-                                entriesMap[entryKey].salle_id = value;
-                                entriesMap[entryKey].type_session = this.getTypeSession(value);
+                                const typeSession = this.getTypeSession(value);
+                                entriesMap[entryKey].salle_id = (typeSession === 'distance' || typeSession === 'efm') ? null : value;
+                                entriesMap[entryKey].type_session = typeSession;
                             }
                         }
                     }
@@ -1386,11 +1431,19 @@ document.addEventListener('alpine:init', () => {
             const d = this.parseLocalDate(this.selectedDate);
             d.setDate(d.getDate() + days);
             this.selectedDate = this.formatLocalDate(d);
+            // Clear cache for new date
+            if (this.timetableCache[this.selectedDate]) {
+                delete this.timetableCache[this.selectedDate];
+            }
             this.loadTimetableForDate();
         },
 
         goToToday() {
             this.selectedDate = this.formatLocalDate(this.todayLocal());
+            // Clear cache for new date
+            if (this.timetableCache[this.selectedDate]) {
+                delete this.timetableCache[this.selectedDate];
+            }
             this.loadTimetableForDate();
         },
 
@@ -1554,6 +1607,13 @@ document.addEventListener('alpine:init', () => {
             reader.readAsText(file);
         },
     }));
+});
+
+// Add real-time sync on window focus
+window.addEventListener('focus', () => {
+    if (window.globalTimetable && window.globalTimetable.loadTimetableForDate) {
+        window.globalTimetable.loadTimetableForDate();
+    }
 });
 </script>
 

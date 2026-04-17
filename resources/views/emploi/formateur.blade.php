@@ -171,6 +171,50 @@ function showToast(message, type = 'success') {
             .edt-cell-module { background-color: #fef3c7; color: #92400e; }
             .edt-cell-salle { background-color: #e0e7ff; color: #3730a3; }
             .edt-cell-salle-teams { background-color: transparent; color: blue; }
+            .custom-dropdown { position: relative; z-index: 2; }
+            .custom-dropdown .dropdown-display {
+                color: #1f2937;
+                background-color: #ffffff;
+                opacity: 1;
+                border: 1px solid #cbd5e1;
+                font-weight: 600;
+                justify-content: flex-start;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            .edt-cell-salle .dropdown-display {
+                color: #312e81;
+                background-color: #eef2ff;
+            }
+            .custom-dropdown .dropdown-options {
+                z-index: 2000;
+                opacity: 1;
+                top: calc(100% + 2px);
+                left: 0;
+                padding: 4px 0;
+                min-width: 180px;
+                border: 1px solid #cbd5e1;
+                border-radius: 8px;
+                background-color: #ffffff;
+                box-shadow: 0 12px 24px rgba(15, 23, 42, 0.16);
+            }
+            .custom-dropdown .dropdown-option {
+                color: #1f2937;
+                background-color: #ffffff;
+                font-size: 11px;
+                line-height: 1.25;
+                padding: 6px 10px;
+                white-space: nowrap;
+            }
+            .custom-dropdown .dropdown-option:hover {
+                background-color: #eef2ff;
+                color: #1e3a8a;
+            }
+            .custom-dropdown .dropdown-option.dropdown-option-empty {
+                color: #64748b;
+                font-style: italic;
+            }
             .edt-select { width: 100%; height: 100%; border: none; font-size: 9px; padding: 0 1px; background: transparent; cursor: pointer; text-align: center; appearance: none; -webkit-appearance: none; }
             .edt-select:focus { outline: 2px solid #3b82f6; outline-offset: -1px; background: white; }
             .edt-table .formateur-col { width: 170px; min-width: 170px; max-width: 170px; }
@@ -210,7 +254,9 @@ function showToast(message, type = 'success') {
 window.formateurTimetable = {
     // Helper to determine session type from salle_id
     getTypeSession(salleId) {
-        return salleId === 'teams' ? 'distance' : 'presentiel';
+        if (salleId === 'teams') return 'distance';
+        if (salleId === 'efm') return 'efm';
+        return 'presentiel';
     },
 
     selectedDate: '',
@@ -220,6 +266,7 @@ window.formateurTimetable = {
     timetableId: null,
     lastSaved: null,
     timetable: {},
+    timetableCache: {}, // Shared cache for all data
     
     // data from database; populated by API calls
     trainers: [],
@@ -319,15 +366,16 @@ window.formateurTimetable = {
         const occupied = this.getOccupiedSalleIdsForSlot(dayIdx, slotIdx, trainerId);
         const salles = this.salles.filter(s => !occupied.has(String(s.id)));
         
-        // Add Teams option at the beginning
+        // Add special options at the beginning
         return [
             { id: 'teams', label: ' Teams(Distance)' },
+            { id: 'efm', label: 'EFM' },
             ...salles
         ];
     },
 
     clearSalleFromOtherTrainersForSlot: function(dayIdx, slotIdx, excludeTrainerId, salleId) {
-        if (!salleId || salleId === 'teams') return; // Don't clear Teams as it's not a physical salle
+        if (!salleId || salleId === 'teams' || salleId === 'efm') return; // Don't clear Teams or EFM as they are not physical salles
         const key = `${dayIdx}-${slotIdx}`;
         Object.keys(this.timetable || {}).forEach(tid => {
             if (String(tid) === String(excludeTrainerId)) return;
@@ -343,21 +391,29 @@ window.formateurTimetable = {
                 `#timetableBody select.edt-select[data-trainer-id="${trainer.id}"][data-row-type="salle"][data-day="${dayIdx}"][data-slot="${slotIdx}"]`
             );
             if (!select) return;
+
             const currentValue = String(this.getCellValue(trainer.id, 'salle', dayIdx, slotIdx) || '');
             const options = this.getSalleOptionsForSlot(dayIdx, slotIdx, trainer.id);
             select.innerHTML = '';
+
             const emptyOption = document.createElement('option');
             emptyOption.value = '';
             select.appendChild(emptyOption);
+
             options.forEach(opt => {
                 const option = document.createElement('option');
                 option.value = String(opt.id);
                 option.textContent = opt.label;
                 if (opt.id === 'teams') {
                     option.style.color = 'blue';
+                } else if (opt.id === 'efm') {
+                    option.style.backgroundColor = '#22c55e';
+                    option.style.color = 'white';
+                    option.style.fontWeight = '700';
                 }
                 select.appendChild(option);
             });
+
             const td = select.closest('td');
             if (currentValue && options.some(x => String(x.id) === currentValue)) {
                 select.value = currentValue;
@@ -377,7 +433,160 @@ window.formateurTimetable = {
             }
         }
     },
-    
+
+    createCustomSalleDropdown: function(trainerId, day, slot, options, currentValue) {
+        const container = document.createElement('div');
+        container.className = 'custom-dropdown';
+        container.dataset.trainerId = String(trainerId);
+        container.dataset.rowType = 'salle';
+        container.dataset.day = String(day);
+        container.dataset.slot = String(slot);
+        container.style.position = 'relative';
+        container.style.width = '100%';
+        
+        const display = document.createElement('div');
+        display.className = 'dropdown-display';
+        display.style.cursor = 'pointer';
+        display.style.minHeight = '28px';
+        display.style.height = '28px';
+        display.style.padding = '2px 4px';
+        display.style.border = '1px solid #d1d5db';
+        display.style.borderRadius = '4px';
+        display.style.backgroundColor = 'white';
+        display.style.display = 'flex';
+        display.style.alignItems = 'center';
+        display.style.width = '100%';
+        
+        const updateDisplay = (value) => {
+            display.innerHTML = '';
+            if (!value) {
+                display.textContent = '';
+                display.style.backgroundColor = 'white';
+                display.style.color = '#1f2937';
+                display.style.borderRadius = '';
+                display.style.padding = '2px 4px';
+                return;
+            }
+            
+            if (value === 'efm') {
+                display.textContent = 'EFM';
+                display.style.color = 'white';
+                display.style.backgroundColor = '#22c55e';
+                display.style.borderRadius = '4px';
+                display.style.padding = '2px 4px';
+            } else if (value === 'teams') {
+                display.textContent = ' Teams(Distance)';
+                display.style.color = 'blue';
+                display.style.backgroundColor = 'transparent';
+                display.style.borderRadius = '4px';
+                display.style.padding = '2px 4px';
+            } else {
+                const salle = this.salles.find(s => String(s.id) === String(value));
+                display.textContent = salle ? salle.label : value;
+                display.style.color = '#1f2937';
+                display.style.backgroundColor = 'white';
+                display.style.borderRadius = '4px';
+                display.style.padding = '2px 4px';
+            }
+        };
+        
+        updateDisplay(currentValue);
+        
+        const dropdown = document.createElement('div');
+        dropdown.className = 'dropdown-options';
+        dropdown.style.display = 'none';
+        dropdown.style.position = 'absolute';
+        dropdown.style.top = 'calc(100% + 2px)';
+        dropdown.style.left = '0';
+        dropdown.style.backgroundColor = 'white';
+        dropdown.style.border = '1px solid #cbd5e1';
+        dropdown.style.borderRadius = '8px';
+        dropdown.style.boxShadow = '0 12px 24px rgba(15, 23, 42, 0.16)';
+        dropdown.style.zIndex = '1000';
+        dropdown.style.maxHeight = '220px';
+        dropdown.style.overflowY = 'auto';
+        dropdown.style.padding = '4px 0';
+        dropdown.style.minWidth = '180px';
+        
+        // Empty option
+        const emptyOption = document.createElement('div');
+        emptyOption.className = 'dropdown-option';
+        emptyOption.dataset.value = '';
+        emptyOption.textContent = 'Effacer la salle';
+        emptyOption.classList.add('dropdown-option-empty');
+        emptyOption.style.padding = '6px 10px';
+        emptyOption.style.cursor = 'pointer';
+        emptyOption.style.backgroundColor = 'white';
+        emptyOption.onmouseover = () => emptyOption.style.backgroundColor = '#f3f4f6';
+        emptyOption.onmouseout = () => emptyOption.style.backgroundColor = 'white';
+        emptyOption.onclick = () => {
+            const v = '';
+            this.setCellValue(trainerId, 'salle', day, slot, v);
+            updateDisplay(v);
+            this.updateCellStyling(container.parentElement, display, 'salle', v);
+            dropdown.style.display = 'none';
+            if (v && v !== 'teams' && v !== 'efm') {
+                this.clearSalleFromOtherTrainersForSlot(day, slot, trainerId, v);
+            }
+            this.refreshSalleDropdownsForSlot(day, slot);
+        };
+        dropdown.appendChild(emptyOption);
+        
+        options.forEach(opt => {
+            const option = document.createElement('div');
+            option.className = 'dropdown-option';
+            option.dataset.value = String(opt.id);
+            option.style.padding = '6px 10px';
+            option.style.cursor = 'pointer';
+            option.style.backgroundColor = 'white';
+            option.onmouseover = () => option.style.backgroundColor = '#f3f4f6';
+            option.onmouseout = () => option.style.backgroundColor = 'white';
+            
+            if (opt.id === 'efm') {
+                option.textContent = 'EFM';
+                option.style.color = 'white';
+                option.style.backgroundColor = '#22c55e';
+            } else if (opt.id === 'teams') {
+                option.textContent = opt.label;
+                option.style.color = 'blue';
+            } else {
+                option.textContent = opt.label;
+            }
+            
+            option.onclick = () => {
+                const v = String(opt.id);
+                this.setCellValue(trainerId, 'salle', day, slot, v);
+                updateDisplay(v);
+                this.updateCellStyling(container.parentElement, display, 'salle', v);
+                dropdown.style.display = 'none';
+                if (v && v !== 'teams' && v !== 'efm') {
+                    this.clearSalleFromOtherTrainersForSlot(day, slot, trainerId, v);
+                }
+                this.refreshSalleDropdownsForSlot(day, slot);
+            };
+            dropdown.appendChild(option);
+        });
+        
+        display.onclick = () => {
+            const isVisible = dropdown.style.display === 'block';
+            // Hide all other dropdowns
+            document.querySelectorAll('.dropdown-options').forEach(d => d.style.display = 'none');
+            dropdown.style.display = isVisible ? 'none' : 'block';
+        };
+        
+        // Close on click outside
+        document.addEventListener('click', (e) => {
+            if (!container.contains(e.target)) {
+                dropdown.style.display = 'none';
+            }
+        });
+        
+        container.appendChild(display);
+        container.appendChild(dropdown);
+        
+        return container;
+    },
+
     renderTable: function() {
         const tbody = document.getElementById('timetableBody');
         tbody.innerHTML = '';
@@ -451,6 +660,16 @@ window.formateurTimetable = {
                                 this.updateCellStyling(td, select, 'group', v);
                                 await this.updateModuleOptionsForTrainerCell(trainer.id, d, s, v, { silent: false });
                             };
+                        } else if (rowType === 'salle') {
+                            select.onchange = (e) => {
+                                const v = e.target.value;
+                                this.setCellValue(trainer.id, 'salle', d, s, v);
+                                this.updateCellStyling(td, select, 'salle', v);
+                                if (v && v !== 'teams' && v !== 'efm') {
+                                    this.clearSalleFromOtherTrainersForSlot(d, s, trainer.id, v);
+                                }
+                                this.refreshSalleDropdownsForSlot(d, s);
+                            };
                         } else {
                             select.onchange = (e) => {
                                 this.setCellValue(trainer.id, rowType, d, s, e.target.value);
@@ -486,21 +705,8 @@ window.formateurTimetable = {
                                 select.appendChild(ph);
                             }
                             options = [];
-                        } else {
+                        } else if (rowType === 'salle') {
                             options = this.getSalleOptionsForSlot(d, s, trainer.id);
-                        }
-
-                        if (rowType === 'salle') {
-                            select.onchange = (e) => {
-                                const v = e.target.value;
-                                // Only clear from other trainers if it's a real salle (not Teams)
-                                if (v && v !== 'teams') {
-                                    this.clearSalleFromOtherTrainersForSlot(d, s, trainer.id, v);
-                                }
-                                this.setCellValue(trainer.id, 'salle', d, s, v);
-                                this.updateCellStyling(td, select, 'salle', v);
-                                this.refreshSalleDropdownsForSlot(d, s);
-                            };
                         }
 
                         options.forEach(opt => {
@@ -509,6 +715,10 @@ window.formateurTimetable = {
                             option.textContent = opt.label;
                             if (opt.id === 'teams') {
                                 option.style.color = 'blue';
+                            } else if (opt.id === 'efm') {
+                                option.style.backgroundColor = '#22c55e';
+                                option.style.color = 'white';
+                                option.style.fontWeight = '700';
                             }
                             select.appendChild(option);
                         });
@@ -527,11 +737,11 @@ window.formateurTimetable = {
         });
     },
     
-    updateCellStyling: function(td, select, rowType, value) {
-        td.classList.remove('edt-cell-group', 'edt-cell-module', 'edt-cell-salle', 'edt-cell-salle-teams');
-        select.classList.remove('edt-cell-group', 'edt-cell-module', 'edt-cell-salle', 'edt-cell-salle-teams');
-        select.style.color = '';
-        select.style.backgroundColor = '';
+    updateCellStyling: function(td, element, rowType, value) {
+        td.classList.remove('edt-cell-group', 'edt-cell-module', 'edt-cell-salle', 'edt-cell-salle-teams', 'edt-cell-salle-efm');
+        element.classList.remove('edt-cell-group', 'edt-cell-module', 'edt-cell-salle', 'edt-cell-salle-teams', 'edt-cell-salle-efm');
+        element.style.color = '';
+        element.style.backgroundColor = '';
         
         if (!value) {
             return;
@@ -539,14 +749,21 @@ window.formateurTimetable = {
 
         const className = `edt-cell-${rowType}`;
         td.classList.add(className);
-        select.classList.add(className);
+        element.classList.add(className);
 
         if (rowType === 'salle' && value === 'teams') {
             td.classList.add('edt-cell-salle-teams');
-            select.classList.remove('edt-cell-salle');
-            select.classList.add('edt-cell-salle-teams');
-            select.style.color = 'blue';
-            select.style.backgroundColor = 'transparent';
+            element.classList.remove('edt-cell-salle');
+            element.classList.add('edt-cell-salle-teams');
+            element.style.color = 'blue';
+            element.style.backgroundColor = 'transparent';
+        } else if (rowType === 'salle' && value === 'efm') {
+            td.classList.remove('edt-cell-salle-teams', 'edt-cell-salle');
+            element.classList.remove('edt-cell-salle', 'edt-cell-salle-teams', 'edt-cell-salle-efm');
+            element.style.color = 'white';
+            element.style.backgroundColor = '#22c55e';
+            element.style.borderRadius = '4px';
+            element.style.padding = '2px 4px';
         }
     },
     
@@ -823,54 +1040,50 @@ window.formateurTimetable = {
         ]);
         
         try {
-            // Reset timetable
-            this.resetTimetable();
-            
-            // Track if any entries were loaded
-            let totalEntriesLoaded = 0;
-            
-            // Filter trainers based on selected formateur
-            const filteredTrainers = this.selectedFormateur === 'all' 
-                ? this.trainers 
-                : this.trainers.filter(t => String(t.id) === this.selectedFormateur);
-            
-            // For each filtered trainer, load their data
-            for (const trainer of filteredTrainers) {
-                try {
-                    const response = await fetch(`/api/timetable-formateur/${this.selectedDate}?formateur_id=${trainer.id}`);
-                    
-                    if (response.ok) {
-                        const entries = await response.json();
-                        
-                        // Count entries for status tracking
-                        if (entries && entries.length > 0) {
-                            totalEntriesLoaded += entries.length;
-                        }
-                        
-                        const selectedDayIndex = this.getSelectedDayIndex();
-                        const selectedDayName = this.getSelectedDayName();
-
-                        // Convert entries to timetable format (id-based)
-                        entries.forEach(entry => {
-                            if (String(entry.date || '').slice(0, 10) !== this.selectedDate) return;
-                            const dayIndex = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'].indexOf(entry.jour || '');
-                            const slotIndex = parseInt(entry.creneau?.substring(1) || '', 10) - 1;
-                            
-                            if (dayIndex >= 0 && slotIndex >= 0) {
-                                this.setCellValue(trainer.id, 'group', dayIndex, slotIndex, entry.groupe_id ? String(entry.groupe_id) : '');
-                                this.setCellValue(trainer.id, 'module', dayIndex, slotIndex, entry.module_id ? String(entry.module_id) : '');
-                                const salleValue = entry.type_session === 'distance' ? 'teams' : (entry.salle_id ? String(entry.salle_id) : '');
-                                this.setCellValue(trainer.id, 'salle', dayIndex, slotIndex, salleValue);
-                            }
-                        });
-                    }
-                } catch (e) {
-                    console.error(`Error loading data for trainer ${trainer.id}:`, e);
+            // Load all timetable data for the date (shared data source)
+            if (!this.timetableCache) {
+                this.timetableCache = {};
+            }
+            if (!this.timetableCache[this.selectedDate]) {
+                const response = await fetch(`/api/emploi-groupe/load?date=${this.selectedDate}`, { headers: { 'Accept': 'application/json' } });
+                if (response.ok) {
+                    const payload = await response.json();
+                    this.timetableCache[this.selectedDate] = Array.isArray(payload) ? payload : (payload.data || []);
+                } else {
+                    this.timetableCache[this.selectedDate] = [];
                 }
             }
             
-            // Set timetableExists based on whether any entries were loaded
-            this.timetableExists = totalEntriesLoaded > 0;
+            const allEntries = this.timetableCache[this.selectedDate];
+            
+            // Reset timetable
+            this.resetTimetable();
+            
+            // Filter entries by selected formateur
+            const filteredEntries = this.selectedFormateur === 'all' 
+                ? allEntries 
+                : allEntries.filter(entry => String(entry.formateur_id) === this.selectedFormateur);
+            
+            // Populate timetable with filtered entries
+            filteredEntries.forEach(entry => {
+                if (String(entry.date || '').slice(0, 10) !== this.selectedDate) return;
+                const dayIndex = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'].indexOf(entry.jour || '');
+                const slotIndex = parseInt(entry.creneau?.substring(1) || '', 10) - 1;
+                
+                if (dayIndex >= 0 && slotIndex >= 0) {
+                    const trainerId = entry.formateur_id;
+                    if (!this.timetable[trainerId]) {
+                        this.timetable[trainerId] = { group: {}, module: {}, salle: {} };
+                    }
+                    this.setCellValue(trainerId, 'group', dayIndex, slotIndex, entry.groupe_id ? String(entry.groupe_id) : '');
+                    this.setCellValue(trainerId, 'module', dayIndex, slotIndex, entry.module_id ? String(entry.module_id) : '');
+                    const salleValue = entry.type_session === 'distance' ? 'teams' : entry.type_session === 'efm' ? 'efm' : (entry.salle_id ? String(entry.salle_id) : '');
+                    this.setCellValue(trainerId, 'salle', dayIndex, slotIndex, salleValue);
+                }
+            });
+            
+            // Set timetableExists
+            this.timetableExists = filteredEntries.length > 0;
             
             this.renderTable();
             await this.refreshAllModuleDropdownsFormateur();
@@ -916,9 +1129,9 @@ window.formateurTimetable = {
                         let salleId = this.timetable[trainerId]['salle']?.[dayIndex + '-' + slotIndex];
                         
                         if (groupeId || moduleId || salleId) {
-                            // Handle Teams selection
+                            // Handle special selections
                             const typeSession = this.getTypeSession(salleId);
-                            const finalSalleId = typeSession === 'distance' ? null : salleId;
+                            const finalSalleId = (typeSession === 'distance' || typeSession === 'efm') ? null : salleId;
 
                             entries.push({
                                 formateur_id: trainerId,
@@ -971,6 +1184,10 @@ window.formateurTimetable = {
                 }
                 
                 this.updateStatusBadge();
+                // Clear shared cache to ensure sync
+                if (this.timetableCache && this.timetableCache[this.selectedDate]) {
+                    delete this.timetableCache[this.selectedDate];
+                }
                 await this.loadTimetableForDate();
                 showToast('Emploi du temps enregistré avec succès !', 'success');
             } else {
@@ -1176,12 +1393,20 @@ window.formateurTimetable = {
         current.setDate(current.getDate() + days);
         this.selectedDate = this.formatLocalDate(current);
         document.getElementById('selectedDate').value = this.selectedDate;
+        // Clear cache for new date
+        if (this.timetableCache[this.selectedDate]) {
+            delete this.timetableCache[this.selectedDate];
+        }
         this.loadTimetableForDate();
     },
     
     goToToday: function() {
         this.selectedDate = this.formatLocalDate(this.todayLocal());
         document.getElementById('selectedDate').value = this.selectedDate;
+        // Clear cache for new date
+        if (this.timetableCache[this.selectedDate]) {
+            delete this.timetableCache[this.selectedDate];
+        }
         this.loadTimetableForDate();
     }
 };
@@ -1189,6 +1414,13 @@ window.formateurTimetable = {
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', function() {
     window.formateurTimetable.init();
+});
+
+// Add real-time sync on window focus
+window.addEventListener('focus', () => {
+    if (window.formateurTimetable && window.formateurTimetable.loadTimetableForDate) {
+        window.formateurTimetable.loadTimetableForDate();
+    }
 });
 </script>
 
