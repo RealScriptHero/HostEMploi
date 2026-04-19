@@ -41,17 +41,18 @@ RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local
 
 WORKDIR /app
 
-# Install Node.js dependencies first to leverage Docker cache
-COPY package.json package-lock.json ./
-RUN npm ci
+# Copy required metadata and application source before installing dependencies
+COPY package.json package-lock.json composer.json composer.lock ./
+COPY . .
 
-# Install PHP dependencies first to leverage Docker cache
-COPY composer.json composer.lock ./
+# Ensure artisan exists before composer install
+RUN if [ ! -f artisan ]; then echo 'artisan file missing; cannot run composer install' >&2; exit 1; fi
+
+# Install PHP dependencies
 RUN composer install --no-dev --optimize-autoloader --prefer-dist --no-interaction
 
-# Copy rest of the application and build assets
-COPY . .
-RUN npm run build && \
+# Install Node.js dependencies and build frontend assets
+RUN npm ci && npm run build && \
     if [ ! -f public/build/manifest.json ]; then \
       echo 'Vite build failed: public/build/manifest.json not found' >&2; \
       exit 1; \
