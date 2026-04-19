@@ -15,7 +15,8 @@ export default defineConfig({
     build: {
         manifest: true,
         outDir: 'public/build',
-        assetsDir: '.',
+        emptyOutDir: true,
+        assetsDir: 'assets',
         sourcemap: false,
         minify: 'terser',
         rollupOptions: {
