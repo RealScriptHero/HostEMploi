@@ -64,30 +64,22 @@ class DatabaseSeeder extends Seeder
 
         // Seed Salles
         $salle1 = Salle::create([
-            'nomCentre' => 'Salle A1',
-            'ville' => 'Casablanca',
-            'adresse' => 'Boulevard de la Corniche',
+            'nomSalle' => 'Salle A1',
             'centre_id' => $centre1->id,
         ]);
 
         $salle2 = Salle::create([
-            'nomCentre' => 'Salle A2',
-            'ville' => 'Casablanca',
-            'adresse' => 'Boulevard de la Corniche',
+            'nomSalle' => 'Salle A2',
             'centre_id' => $centre1->id,
         ]);
 
         $salle3 = Salle::create([
-            'nomCentre' => 'Salle B1',
-            'ville' => 'Marrakech',
-            'adresse' => 'Avenue Mohammed V',
+            'nomSalle' => 'Salle B1',
             'centre_id' => $centre2->id,
         ]);
 
         $salle4 = Salle::create([
-            'nomCentre' => 'Salle C1',
-            'ville' => 'Fès',
-            'adresse' => 'Rue Hassan II',
+            'nomSalle' => 'Salle C1',
             'centre_id' => $centre3->id,
         ]);
 
