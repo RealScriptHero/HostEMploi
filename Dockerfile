@@ -22,8 +22,11 @@ WORKDIR /app
 # Copy all files
 COPY . .
 
-# Install Node.js dependencies and build frontend assets with Vite
-RUN npm ci && npm run build
+# Install Node.js dependencies (use npm install to ensure all devDependencies are installed)
+RUN npm install
+
+# Build frontend assets with Vite
+RUN npm run build
 
 # Install PHP composer dependencies
 RUN composer install --no-dev --optimize-autoloader --prefer-dist --no-interaction
