@@ -26,20 +26,18 @@ class DatabaseSeeder extends Seeder
         // Call the AdminUserSeeder to create the default admin account
         $this->call(AdminUserSeeder::class);
 
-        // Seed Utilisateurs with properly hashed passwords
-        Utilisateur::create([
+        // Seed Utilisateurs safely without creating duplicates on repeated deploys.
+        Utilisateur::firstOrCreate(['email' => 'admin@ofppt.org'], [
             'nom' => 'Admin',
             'prenom' => 'System',
-            'email' => 'admin@ofppt.org',
             'motDePasse' => Hash::make('password'),
             'role' => 'admin',
             'dateCreation' => now(),
         ]);
 
-        Utilisateur::create([
+        Utilisateur::firstOrCreate(['email' => 'responsable@ofppt.org'], [
             'nom' => 'Responsable',
             'prenom' => 'Centre',
-            'email' => 'responsable@ofppt.org',
             'motDePasse' => Hash::make('password'),
             'role' => 'responsable',
             'dateCreation' => now(),

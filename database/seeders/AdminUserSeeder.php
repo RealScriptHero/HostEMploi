@@ -4,6 +4,7 @@ namespace Database\Seeders;
 
 use Illuminate\Database\Seeder;
 use App\Models\Utilisateur;
+use Illuminate\Support\Facades\Hash;
 
 class AdminUserSeeder extends Seeder
 {
@@ -12,18 +13,16 @@ class AdminUserSeeder extends Seeder
      */
     public function run(): void
     {
-        // Use updateOrCreate to avoid duplicates
-        // If a user with this email exists, update it; otherwise, create it
-        Utilisateur::updateOrCreate(
-            ['email' => 'zharimaha@gmail.com'],  // Search condition
-            [                                     // Data to create/update
-                'nom' => 'Admin',
-                'prenom' => 'User',
+        // Create default admin only on first deploy (empty users table).
+        if (Utilisateur::count() === 0) {
+            Utilisateur::create([
+                'nom' => 'admin',
+                'prenom' => 'admin',
                 'email' => 'zharimaha@gmail.com',
-                'motDePasse' => 'ofppt1122',    // Will be auto-hashed by the model
+                'motDePasse' => Hash::make('ofppt1122'),
                 'role' => 'admin',
                 'dateCreation' => now(),
-            ]
-        );
+            ]);
+        }
     }
 }
