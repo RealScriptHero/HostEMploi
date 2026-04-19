@@ -1,11 +1,11 @@
 #!/bin/sh
 set -e
 
-#!/bin/sh
-set -e
+php artisan config:clear
+php artisan cache:clear
+php artisan route:clear
 
-# Run Laravel migrations
 php artisan migrate --force
+php artisan db:seed --force
 
-# Start Laravel server
-php artisan serve --host=0.0.0.0 --port=${PORT:-8080}
+php artisan serve --host 0.0.0.0 --port $PORT
