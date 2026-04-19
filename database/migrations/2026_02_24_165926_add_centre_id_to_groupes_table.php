@@ -12,8 +12,8 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('groupes', function (Blueprint $table) {
-            // Add centre_id column after id
-            $table->unsignedBigInteger('centre_id')->nullable()->after('id');
+            // Add centre_id column
+            $table->unsignedBigInteger('centre_id')->nullable();
             
             // Add foreign key constraint
             $table->foreign('centre_id')

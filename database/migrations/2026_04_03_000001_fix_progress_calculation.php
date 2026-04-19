@@ -11,14 +11,14 @@ return new class extends Migration
         // Add masse_horaire to modules if not exists
         if (!Schema::hasColumn('modules', 'masse_horaire')) {
             Schema::table('modules', function (Blueprint $table) {
-                $table->unsignedInteger('masse_horaire')->default(0)->after('codeModule');
+                $table->unsignedInteger('masse_horaire')->default(0);
             });
         }
 
         // Add duree_heures to emploi_du_temps if not exists
         if (!Schema::hasColumn('emploi_du_temps', 'duree_heures')) {
             Schema::table('emploi_du_temps', function (Blueprint $table) {
-                $table->decimal('duree_heures', 5, 2)->default(2.00)->after('creneau');
+                $table->decimal('duree_heures', 5, 2)->default(2.00);
             });
         }
 
@@ -34,7 +34,7 @@ return new class extends Migration
             });
         } elseif (!Schema::hasColumn('module_groupe', 'heures_allouees')) {
             Schema::table('module_groupe', function (Blueprint $table) {
-                $table->unsignedInteger('heures_allouees')->default(0)->after('groupe_id');
+                $table->unsignedInteger('heures_allouees')->default(0);
             });
         }
 

@@ -13,7 +13,7 @@ return new class extends Migration
     {
         Schema::table('centres', function (Blueprint $table) {
             if (!Schema::hasColumn('centres', 'shortName')) {
-                $table->string('shortName')->nullable()->after('nomCentre');
+                $table->string('shortName')->nullable();
             }
         });
     }

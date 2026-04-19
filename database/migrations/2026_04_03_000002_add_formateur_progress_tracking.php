@@ -10,7 +10,7 @@ return new class extends Migration
     {
         Schema::table('formateurs', function (Blueprint $table) {
             if (!Schema::hasColumn('formateurs', 'heures_totales_requises')) {
-                $table->unsignedInteger('heures_totales_requises')->default(0)->after('specialite');
+                $table->unsignedInteger('heures_totales_requises')->default(0);
             }
         });
 

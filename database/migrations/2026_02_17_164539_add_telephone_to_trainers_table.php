@@ -13,7 +13,7 @@ return new class extends Migration
     {
         Schema::table('formateurs', function (Blueprint $table) {
             if (!Schema::hasColumn('formateurs', 'progress')) {
-                $table->integer('progress')->default(0)->after('email');
+                $table->integer('progress')->default(0);
             }
         });
     }

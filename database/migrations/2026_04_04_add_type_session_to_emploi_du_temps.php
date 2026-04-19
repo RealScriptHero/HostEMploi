@@ -10,9 +10,9 @@ return new class extends Migration
     {
         Schema::table('emploi_du_temps', function (Blueprint $table) {
             if (!Schema::hasColumn('emploi_du_temps', 'type_session')) {
-                $table->enum('type_session', ['presentiel', 'distance'])
-                      ->default('presentiel')
-                      ->after('duree_heures');
+                // Use string for cross-database compatibility (PostgreSQL/MySQL).
+                $table->string('type_session', 20)
+                    ->default('presentiel');
             }
         });
     }

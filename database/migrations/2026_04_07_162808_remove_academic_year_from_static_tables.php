@@ -24,7 +24,11 @@ return new class extends Migration
         // Drop from groupes table
         if (Schema::hasColumn('groupes', 'academic_year')) {
             Schema::table('groupes', function (Blueprint $table) {
-                $table->dropIndex(['academic_year']);
+                try {
+                    $table->dropIndex(['academic_year']);
+                } catch (\Throwable $e) {
+                    // Index might not exist.
+                }
                 $table->dropColumn('academic_year');
             });
         }
@@ -32,7 +36,11 @@ return new class extends Migration
         // Drop from modules table
         if (Schema::hasColumn('modules', 'academic_year')) {
             Schema::table('modules', function (Blueprint $table) {
-                $table->dropIndex(['academic_year']);
+                try {
+                    $table->dropIndex(['academic_year']);
+                } catch (\Throwable $e) {
+                    // Index might not exist.
+                }
                 $table->dropColumn('academic_year');
             });
         }
@@ -40,7 +48,11 @@ return new class extends Migration
         // Drop from formateurs table
         if (Schema::hasColumn('formateurs', 'academic_year')) {
             Schema::table('formateurs', function (Blueprint $table) {
-                $table->dropIndex(['academic_year']);
+                try {
+                    $table->dropIndex(['academic_year']);
+                } catch (\Throwable $e) {
+                    // Index might not exist.
+                }
                 $table->dropColumn('academic_year');
             });
         }
@@ -48,7 +60,11 @@ return new class extends Migration
         // Drop from salles table (if it has the column)
         if (Schema::hasColumn('salles', 'academic_year')) {
             Schema::table('salles', function (Blueprint $table) {
-                $table->dropIndex(['academic_year']);
+                try {
+                    $table->dropIndex(['academic_year']);
+                } catch (\Throwable $e) {
+                    // Index might not exist.
+                }
                 $table->dropColumn('academic_year');
             });
         }
@@ -56,7 +72,11 @@ return new class extends Migration
         // Drop from centres table (if it has the column)
         if (Schema::hasColumn('centres', 'academic_year')) {
             Schema::table('centres', function (Blueprint $table) {
-                $table->dropIndex(['academic_year']);
+                try {
+                    $table->dropIndex(['academic_year']);
+                } catch (\Throwable $e) {
+                    // Index might not exist.
+                }
                 $table->dropColumn('academic_year');
             });
         }
@@ -70,21 +90,21 @@ return new class extends Migration
         // Restore academic_year columns to static tables
         if (!Schema::hasColumn('groupes', 'academic_year')) {
             Schema::table('groupes', function (Blueprint $table) {
-                $table->string('academic_year')->nullable()->after('updated_at');
+                $table->string('academic_year')->nullable();
                 $table->index(['academic_year']);
             });
         }
 
         if (!Schema::hasColumn('modules', 'academic_year')) {
             Schema::table('modules', function (Blueprint $table) {
-                $table->string('academic_year')->nullable()->after('updated_at');
+                $table->string('academic_year')->nullable();
                 $table->index(['academic_year']);
             });
         }
 
         if (!Schema::hasColumn('formateurs', 'academic_year')) {
             Schema::table('formateurs', function (Blueprint $table) {
-                $table->string('academic_year')->nullable()->after('updated_at');
+                $table->string('academic_year')->nullable();
                 $table->index(['academic_year']);
             });
         }
