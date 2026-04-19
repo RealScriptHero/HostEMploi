@@ -20,7 +20,14 @@ Route::get('/check-users', function () {
 });
 
 Route::get('/debug-utilisateur', function () {
-    return DB::table('utilisateur')->get();
+    try {
+        return DB::table('utilisateur')->get();
+    } catch (\Throwable $e) {
+        return response()->json([
+            'error' => $e->getMessage(),
+            'trace' => substr($e->getTraceAsString(), 0, 500)
+        ]);
+    }
 });
 
 /*
