@@ -2,27 +2,31 @@
 
 namespace Database\Seeders;
 
-use Illuminate\Database\Seeder;
 use App\Models\Utilisateur;
+use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Schema;
 
 class AdminUserSeeder extends Seeder
 {
     /**
-     * Seed the default admin user.
+     * Seed the default admin user (utilisateurs table only).
      */
     public function run(): void
     {
-        // Create default admin only on first deploy (empty users table).
-        if (Utilisateur::count() === 0) {
-            Utilisateur::create([
+        if (! Schema::hasTable('utilisateurs')) {
+            return;
+        }
+
+        Utilisateur::firstOrCreate(
+            ['email' => 'zharimaha@gmail.com'],
+            [
                 'nom' => 'admin',
                 'prenom' => 'admin',
-                'email' => 'zharimaha@gmail.com',
                 'motDePasse' => Hash::make('ofppt1122'),
                 'role' => 'admin',
                 'dateCreation' => now(),
-            ]);
-        }
+            ]
+        );
     }
 }
