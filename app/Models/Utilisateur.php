@@ -10,7 +10,7 @@ class Utilisateur extends Authenticatable
 {
     use HasFactory;
 
-    protected $table = 'utilisateur';
+    protected $table = 'utilisateurs';
 
     protected $fillable = [
         'nom',

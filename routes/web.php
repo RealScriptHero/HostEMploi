@@ -21,7 +21,7 @@ Route::get('/check-users', function () {
 
 Route::get('/debug-utilisateur', function () {
     try {
-        return DB::table('utilisateur')->get();
+        return DB::table('utilisateurs')->get();
     } catch (\Throwable $e) {
         return response()->json([
             'error' => $e->getMessage(),
