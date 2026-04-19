@@ -41,17 +41,17 @@ RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local
 
 WORKDIR /app
 
-# Copy application files
-COPY . .
-
-# Install Node.js dependencies (use npm install to ensure all devDependencies are installed)
+# Install Node.js dependencies first to leverage Docker cache
+COPY package.json package-lock.json* ./
 RUN npm install
 
-# Build frontend assets with Vite
-RUN npm run build
-
-# Install PHP composer dependencies
+# Install PHP dependencies first to leverage Docker cache
+COPY composer.json composer.lock* ./
 RUN composer install --no-dev --optimize-autoloader --prefer-dist --no-interaction
+
+# Copy rest of the application and build assets
+COPY . .
+RUN npm run build
 
 # Stage 2: Runtime (Production image)
 FROM php:8.3-alpine
