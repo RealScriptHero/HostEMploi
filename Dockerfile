@@ -33,7 +33,6 @@ RUN docker-php-ext-configure gd --with-freetype --with-jpeg && \
     pdo \
     pdo_pgsql \
     session \
-    tokenizer \
     xml \
     zip
 
@@ -94,7 +93,6 @@ RUN apk add --no-cache --virtual .build-deps \
     pdo \
     pdo_pgsql \
     session \
-    tokenizer \
     xml \
     zip && \
     apk del .build-deps
