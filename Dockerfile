@@ -54,9 +54,11 @@ RUN composer install --no-dev --optimize-autoloader --prefer-dist --no-interacti
 # Install Node.js dependencies and build frontend assets
 RUN npm ci && npm run build && \
     if [ ! -f public/build/manifest.json ]; then \
-      echo 'Vite build failed: public/build/manifest.json not found' >&2; \
+      echo 'ERROR: Vite build failed - manifest.json not found at public/build/manifest.json' >&2; \
+      ls -la public/build/ 2>&1 || echo 'public/build directory does not exist'; \
       exit 1; \
-    fi
+    fi && \
+    echo 'Vite build successful: manifest.json generated at public/build/manifest.json'
 
 # Stage 2: Runtime (Production image)
 FROM php:8.3-alpine

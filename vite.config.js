@@ -2,7 +2,6 @@ import { defineConfig } from 'vite';
 import laravel from 'laravel-vite-plugin';
 
 export default defineConfig({
-    base: '/build/',
     plugins: [
         laravel({
             input: [
@@ -13,19 +12,22 @@ export default defineConfig({
         }),
     ],
     build: {
-        manifest: true,
+        manifest: 'manifest.json',
         outDir: 'public/build',
         emptyOutDir: true,
-        assetsDir: 'assets',
+        assetsDir: '.',
         sourcemap: false,
         minify: 'terser',
         rollupOptions: {
             output: {
-                manualChunks: undefined,
+                dir: 'public/build',
                 entryFileNames: '[name].[hash].js',
                 chunkFileNames: '[name].[hash].js',
                 assetFileNames: '[name].[hash][extname]',
             },
         },
+    },
+    optimizeDeps: {
+        include: ['laravel-vite-plugin'],
     },
 });
