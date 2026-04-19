@@ -1,25 +1,48 @@
-# Stage 1: Builder (Node.js + PHP for frontend + backend dependencies)
-FROM node:18-alpine AS builder
+# Stage 1: Builder (PHP + Node.js for frontend + backend dependencies)
+FROM php:8.3-alpine AS builder
 
-# Install PHP and PHP dependencies for builder stage
+# Install Node.js and build tools
 RUN apk add --no-cache \
-    php \
-    php-cli \
-    php-pdo \
-    php-pgsql \
-    php-mbstring \
-    php-zip \
-    php-xml \
-    php-opcache \
-    composer \
-    git \
-    curl \
+    nodejs \
+    npm
+
+# Install build dependencies and PHP extension dependencies
+RUN apk add --no-cache --virtual .build-deps \
+    autoconf \
     build-base \
-    autoconf
+    curl \
+    git \
+    libpng-dev \
+    libjpeg-turbo-dev \
+    freetype-dev \
+    oniguruma-dev \
+    libxml2-dev \
+    icu-dev \
+    zlib-dev \
+    libzip-dev \
+    postgresql-dev
+
+# Install required PHP extensions for Laravel
+RUN docker-php-ext-configure gd --with-freetype --with-jpeg && \
+    docker-php-ext-install -j$(nproc) \
+    dom \
+    fileinfo \
+    gd \
+    mbstring \
+    opcache \
+    pdo \
+    pdo_pgsql \
+    session \
+    tokenizer \
+    xml \
+    zip
+
+# Install Composer
+RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
 
 WORKDIR /app
 
-# Copy all files
+# Copy application files
 COPY . .
 
 # Install Node.js dependencies (use npm install to ensure all devDependencies are installed)
@@ -32,7 +55,7 @@ RUN npm run build
 RUN composer install --no-dev --optimize-autoloader --prefer-dist --no-interaction
 
 # Stage 2: Runtime (Production image)
-FROM php:8.3-cli-alpine
+FROM php:8.3-alpine
 
 # Install runtime dependencies
 RUN apk add --no-cache \
@@ -45,9 +68,10 @@ RUN apk add --no-cache \
     libzip \
     libpq \
     postgresql-libs \
+    icu-libs \
     ca-certificates
 
-# Install PHP extensions
+# Install build dependencies for PHP extensions
 RUN apk add --no-cache --virtual .build-deps \
     autoconf \
     build-base \
@@ -56,18 +80,23 @@ RUN apk add --no-cache --virtual .build-deps \
     freetype-dev \
     oniguruma-dev \
     libxml2-dev \
+    icu-dev \
     zlib-dev \
     libzip-dev \
     postgresql-dev && \
     docker-php-ext-configure gd --with-freetype --with-jpeg && \
     docker-php-ext-install -j$(nproc) \
+    dom \
+    fileinfo \
     gd \
+    mbstring \
+    opcache \
     pdo \
     pdo_pgsql \
-    mbstring \
-    zip \
+    session \
+    tokenizer \
     xml \
-    opcache && \
+    zip && \
     apk del .build-deps
 
 # Set PHP configuration for production
@@ -79,9 +108,6 @@ WORKDIR /app
 
 # Copy from builder stage (built assets + composer dependencies)
 COPY --from=builder /app /app
-COPY --from=builder /app/public/build /app/public/build
-COPY --from=builder /app/vendor /app/vendor
-COPY --from=builder /app/node_modules /app/node_modules
 
 # Set permissions for Laravel
 RUN chown -R www-data:www-data /app && \
