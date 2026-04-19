@@ -42,16 +42,20 @@ RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local
 WORKDIR /app
 
 # Install Node.js dependencies first to leverage Docker cache
-COPY package.json package-lock.json* ./
-RUN npm install
+COPY package.json package-lock.json ./
+RUN npm ci
 
 # Install PHP dependencies first to leverage Docker cache
-COPY composer.json composer.lock* ./
+COPY composer.json composer.lock ./
 RUN composer install --no-dev --optimize-autoloader --prefer-dist --no-interaction
 
 # Copy rest of the application and build assets
 COPY . .
-RUN npm run build
+RUN npm run build && \
+    if [ ! -f public/build/manifest.json ]; then \
+      echo 'Vite build failed: public/build/manifest.json not found' >&2; \
+      exit 1; \
+    fi
 
 # Stage 2: Runtime (Production image)
 FROM php:8.3-alpine
