@@ -11,4 +11,19 @@ export default defineConfig({
             refresh: true,
         }),
     ],
+    build: {
+        manifest: true,
+        outDir: 'public/build',
+        assetsDir: '.',
+        sourcemap: false,
+        minify: 'terser',
+        rollupOptions: {
+            output: {
+                manualChunks: undefined,
+                entryFileNames: '[name].[hash].js',
+                chunkFileNames: '[name].[hash].js',
+                assetFileNames: '[name].[hash][extname]',
+            },
+        },
+    },
 });
