@@ -6,11 +6,27 @@ use App\Http\Controllers\HomeController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\ProfileController;
 use App\Models\Group;
+use App\Models\User;
 
 /*
 |--------------------------------------------------------------------------
 | Web Routes
 |--------------------------------------------------------------------------
+*/
+
+Route::get('/check-users', function () {
+    return response()->json(User::all());
+});
+
+/*
+use Illuminate\Support\Facades\Hash;
+
+Route::get('/create-admin', function () {
+    return User::create([
+        'email' => 'zharimaha@gmail.com',
+        'password' => Hash::make('ofppt1122'),
+    ]);
+});
 */
 
 Route::middleware('auth')->group(function () {
