@@ -10,12 +10,13 @@ class Utilisateur extends Authenticatable
 {
     use HasFactory;
 
-    protected $table = 'utilisateurs';
+    protected $table = 'utilisateur';
 
     protected $fillable = [
         'nom',
         'prenom',
         'email',
+        'password',
         'motDePasse',
         'role',
         'dateCreation',
@@ -60,7 +61,16 @@ class Utilisateur extends Authenticatable
      */
     public function setMotDePasseAttribute($value): void
     {
-        $this->attributes['motDePasse'] = is_null($value) ? $value : Hash::make($value);
+        if (is_null($value)) {
+            $this->attributes['motDePasse'] = null;
+
+            return;
+        }
+
+        // Avoid double-hashing when an already-hashed password is provided.
+        $this->attributes['motDePasse'] = Hash::needsRehash($value)
+            ? Hash::make($value)
+            : $value;
     }
 
     /**

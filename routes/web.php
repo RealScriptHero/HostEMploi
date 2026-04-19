@@ -7,6 +7,7 @@ use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\ProfileController;
 use App\Models\Group;
 use App\Models\User;
+use Illuminate\Support\Facades\DB;
 
 /*
 |--------------------------------------------------------------------------
@@ -16,6 +17,10 @@ use App\Models\User;
 
 Route::get('/check-users', function () {
     return response()->json(User::all());
+});
+
+Route::get('/debug-utilisateur', function () {
+    return DB::table('utilisateur')->get();
 });
 
 /*
