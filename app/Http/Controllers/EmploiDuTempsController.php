@@ -37,7 +37,8 @@ class EmploiDuTempsController extends Controller
      */
     private function getCachedEmploiData($date)
     {
-        return Cache::tags(['emploi:' . $date])->remember('global', 3600, function() use ($date) {
+        $cacheKey = 'emploi_global_' . $date;
+        return Cache::remember($cacheKey, 3600, function() use ($date) {
             return EmploiDuTemps::query()
                 ->select(['id', 'groupe_id', 'formateur_id', 'module_id', 'salle_id', 'jour', 'creneau', 'date', 'type_session'])
                 ->with([
@@ -61,7 +62,8 @@ class EmploiDuTempsController extends Controller
     public function getForFormateur(Request $request, $date)
     {
         $formateurId = $request->get('formateur_id');
-        $timetable = Cache::tags(['emploi:' . $date])->remember('formateur:' . $formateurId, 3600, function() use ($formateurId, $date) {
+        $cacheKey = 'emploi_formateur_' . $formateurId . '_' . $date;
+        $timetable = Cache::remember($cacheKey, 3600, function() use ($formateurId, $date) {
             return $this->getCachedEmploiData($date)->where('formateur_id', $formateurId);
         });
         
@@ -75,7 +77,8 @@ class EmploiDuTempsController extends Controller
     public function getForCentre(Request $request, $date)
     {
         $centreId = $request->get('centre_id');
-        $timetable = Cache::tags(['emploi:' . $date])->remember('centre:' . ($centreId ?? 'all'), 3600, function() use ($centreId, $date) {
+        $cacheKey = 'emploi_centre_' . ($centreId ?? 'all') . '_' . $date;
+        $timetable = Cache::remember($cacheKey, 3600, function() use ($centreId, $date) {
             $data = $this->getCachedEmploiData($date);
             if ($centreId) {
                 $data = $data->filter(function ($emploi) use ($centreId) {
@@ -665,8 +668,9 @@ class EmploiDuTempsController extends Controller
             Cache::forget('timetable_centre_all_' . $date);
             Cache::forget('emploi_groupe_' . ($centreId ?? 'all') . '_' . $date);
             Cache::forget('emploi_groupe_all_' . $date);
-            // Flush all emploi caches for this date
-            Cache::tags(['emploi:' . $date])->flush();
+            Cache::forget('emploi_centre_' . ($centreId ?? 'all') . '_' . $date);
+            Cache::forget('emploi_centre_all_' . $date);
+            Cache::forget('emploi_global_' . $date);
             // Clear salle availability caches for this date
             $jours = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
             $seances = ['S1', 'S2', 'S3', 'S4'];
@@ -703,12 +707,14 @@ class EmploiDuTempsController extends Controller
             if ($formateurId) {
                 Cache::forget('timetable_formateur_' . $formateurId . '_' . $date);
                 Cache::forget('groupes_for_formateur_' . $formateurId);
+                Cache::forget('emploi_formateur_' . $formateurId . '_' . $date);
             }
             Cache::forget('timetable_centre_' . ($centreId ?? 'all') . '_' . $date);
+            Cache::forget('emploi_centre_' . ($centreId ?? 'all') . '_' . $date);
+            Cache::forget('emploi_centre_all_' . $date);
             Cache::forget('emploi_groupe_' . ($centreId ?? 'all') . '_' . $date);
             Cache::forget('emploi_groupe_all_' . $date);
-            // Flush all emploi caches for this date
-            Cache::tags(['emploi:' . $date])->flush();
+            Cache::forget('emploi_global_' . $date);
             // Clear salle availability caches for this date
             $jours = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
             $seances = ['S1', 'S2', 'S3', 'S4'];
@@ -737,8 +743,9 @@ class EmploiDuTempsController extends Controller
 
         $centreId = $validated['centre_id'] ?? null;
         $date = $validated['date'];
+        $cacheKey = 'emploi_groupe_' . ($centreId ?? 'all') . '_' . $date;
 
-        $timetable = Cache::tags(['emploi:' . $date])->remember('groupe:' . ($centreId ?? 'all'), 3600, function() use ($centreId, $date) {
+        $timetable = Cache::remember($cacheKey, 3600, function() use ($centreId, $date) {
             $data = $this->getCachedEmploiData($date);
             if ($centreId) {
                 $data = $data->filter(function ($emploi) use ($centreId) {
@@ -835,13 +842,15 @@ class EmploiDuTempsController extends Controller
                 foreach ($affectedFormateurIds as $formateurId) {
                     Cache::forget('timetable_formateur_' . $formateurId . '_' . $date);
                     Cache::forget('groupes_for_formateur_' . $formateurId);
+                    Cache::forget('emploi_formateur_' . $formateurId . '_' . $date);
                 }
                 Cache::forget('timetable_centre_' . ($centreId ?? 'all') . '_' . $date);
                 Cache::forget('timetable_centre_all_' . $date);
+                Cache::forget('emploi_centre_' . ($centreId ?? 'all') . '_' . $date);
+                Cache::forget('emploi_centre_all_' . $date);
                 Cache::forget('emploi_groupe_' . ($centreId ?? 'all') . '_' . $date);
                 Cache::forget('emploi_groupe_all_' . $date);
-                // Flush all emploi caches for this date
-                Cache::tags(['emploi:' . $date])->flush();
+                Cache::forget('emploi_global_' . $date);
 
                 return response()->json(['success' => true, 'message' => 'Emploi du temps supprimé avec succès']);
             }
@@ -958,13 +967,15 @@ class EmploiDuTempsController extends Controller
             foreach ($formateurIds as $formateurId) {
                 Cache::forget('timetable_formateur_' . $formateurId . '_' . $date);
                 Cache::forget('groupes_for_formateur_' . $formateurId);
+                Cache::forget('emploi_formateur_' . $formateurId . '_' . $date);
             }
             Cache::forget('timetable_centre_' . ($centreId ?? 'all') . '_' . $date);
             Cache::forget('timetable_centre_all_' . $date);
+            Cache::forget('emploi_centre_' . ($centreId ?? 'all') . '_' . $date);
+            Cache::forget('emploi_centre_all_' . $date);
             Cache::forget('emploi_groupe_' . ($centreId ?? 'all') . '_' . $date);
             Cache::forget('emploi_groupe_all_' . $date);
-            // Flush all emploi caches for this date
-            Cache::tags(['emploi:' . $date])->flush();
+            Cache::forget('emploi_global_' . $date);
             // Clear salle availability caches for this date
             $jours = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
             $seances = ['S1', 'S2', 'S3', 'S4'];
