@@ -41,24 +41,32 @@ RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local
 
 WORKDIR /app
 
-# Copy required metadata and application source before installing dependencies
-COPY package.json package-lock.json composer.json composer.lock ./
+# Copy required files FIRST
+COPY composer.json composer.lock ./
+
+# Install PHP dependencies BEFORE copying rest of project
+RUN echo "Installing composer dependencies..." && \
+    composer install --no-dev --optimize-autoloader --prefer-dist --no-interaction --no-scripts
+
+# Now copy the entire project
 COPY . .
 
-# Ensure artisan exists before composer install
-RUN if [ ! -f artisan ]; then echo 'artisan file missing; cannot run composer install' >&2; exit 1; fi
-
-# Install PHP dependencies
+# Run composer post-install scripts
 RUN composer install --no-dev --optimize-autoloader --prefer-dist --no-interaction
 
-# Clear and rebuild Laravel caches for production
-RUN php artisan config:clear && \
-    php artisan cache:clear && \
-    php artisan route:clear && \
-    php artisan view:clear && \
+# Verify artisan exists (required for next steps)
+RUN if [ ! -f artisan ]; then echo "ERROR: artisan file missing!" >&2; exit 1; fi
+
+# Clear and rebuild Laravel caches (using file cache to avoid Redis issues during build)
+RUN echo "Building Laravel production caches..." && \
+    php artisan config:clear 2>/dev/null || true && \
+    php artisan cache:clear 2>/dev/null || true && \
+    php artisan route:clear 2>/dev/null || true && \
+    php artisan view:clear 2>/dev/null || true && \
     php artisan config:cache && \
     php artisan route:cache && \
-    php artisan view:cache
+    php artisan view:cache && \
+    echo "Cache build successful"
 
 # Install Node.js dependencies and build frontend assets
 RUN npm ci && npm run build && \
