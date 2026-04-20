@@ -127,7 +127,7 @@ function showToast(message, type = 'success') {
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
                 </svg>
                 <span class="text-sm font-semibold text-gray-800">Filtrer par formateur:</span>
-                <select id="formateurFilter" onchange="window.formateurTimetable.onFormateurFilterChanged()" class="px-3 py-1.5 bg-white border border-green-300 rounded-md text-sm font-medium text-gray-700 focus:ring-2 focus:ring-green-500 focus:border-green-500">
+                <select id="formateurFilter" onchange="window.formateurTimetable.onFormateurFilterChanged()" class="px-3 py-1.5 bg-white border border-green-300 rounded-md text-sm font-medium text-gray-700 focus:ring-2 focus:ring-green-500 focus:border-green-500" :disabled="window.formateurTimetable.loading">
                     <option value="all">Tous les formateurs</option>
                 </select>
             </div>
@@ -151,7 +151,15 @@ function showToast(message, type = 'success') {
     </div>
 
     {{-- Timetable --}}
-    <div class="px-2">
+    <div class="px-2 relative">
+        {{-- Loading Overlay --}}
+        <div id="loadingOverlay" class="absolute inset-0 bg-white bg-opacity-75 flex items-center justify-center z-10 hidden">
+            <div class="flex flex-col items-center gap-3">
+                <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                <span class="text-sm font-medium text-gray-700">Chargement de l'emploi du temps...</span>
+            </div>
+        </div>
+
         <style>
             .edt-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 10px; }
             .edt-table th, .edt-table td { border: 1px solid #d1d5db; text-align: center; vertical-align: middle; }
@@ -267,6 +275,7 @@ window.formateurTimetable = {
     lastSaved: null,
     timetable: {},
     timetableCache: {}, // Shared cache for all data
+    loading: false, // Loading state
     
     // data from database; populated by API calls
     trainers: [],
@@ -342,13 +351,58 @@ window.formateurTimetable = {
 
     onFormateurFilterChanged: function() {
         this.selectedFormateur = document.getElementById('formateurFilter').value;
-        this.renderTable();
-        this.loadTimetableForDate();
+        this.filterAndRenderTimetable();
     },
 
     onSearchInput: function() {
         this.searchTerm = document.getElementById('searchInput').value.toLowerCase().trim();
+        this.filterAndRenderTimetable();
+    },
+
+    filterAndRenderTimetable: function() {
+        // Filter the cached data based on selectedFormateur and searchTerm
+        const allEntries = this.timetableCache[this.selectedDate] || [];
+        
+        let filteredEntries = this.selectedFormateur === 'all' 
+            ? allEntries 
+            : allEntries.filter(entry => String(entry.formateur_id) === this.selectedFormateur);
+        
+        if (this.searchTerm) {
+            filteredEntries = filteredEntries.filter(entry => {
+                const trainer = this.trainers.find(t => t.id == entry.formateur_id);
+                const group = this.allGroups.find(g => g.id == entry.groupe_id);
+                const trainerName = trainer ? (trainer.nom + ' ' + trainer.prenom).toLowerCase() : '';
+                const groupName = group ? group.nomGroupe.toLowerCase() : '';
+                return trainerName.includes(this.searchTerm) || groupName.includes(this.searchTerm);
+            });
+        }
+        
+        // Populate timetable with filtered entries
+        this.resetTimetable();
+        filteredEntries.forEach(entry => {
+            if (String(entry.date || '').slice(0, 10) !== this.selectedDate) return;
+            const dayIndex = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'].indexOf(entry.jour || '');
+            const slotIndex = parseInt(entry.creneau?.substring(1) || '', 10) - 1;
+            
+            if (dayIndex >= 0 && slotIndex >= 0) {
+                const trainerId = entry.formateur_id;
+                if (!this.timetable[trainerId]) {
+                    this.timetable[trainerId] = { group: {}, module: {}, salle: {} };
+                }
+                this.setCellValue(trainerId, 'group', dayIndex, slotIndex, entry.groupe_id ? String(entry.groupe_id) : '');
+                this.setCellValue(trainerId, 'module', dayIndex, slotIndex, entry.module_id ? String(entry.module_id) : '');
+                const salleValue = entry.type_session === 'distance' ? 'teams' : entry.type_session === 'efm' ? 'efm' : (entry.salle_id ? String(entry.salle_id) : '');
+                this.setCellValue(trainerId, 'salle', dayIndex, slotIndex, salleValue);
+            }
+        });
+        
+        // Set timetableExists
+        this.timetableExists = filteredEntries.length > 0;
+        
         this.renderTable();
+        this.refreshAllModuleDropdownsFormateur();
+        this.refreshSalleDropdowns();
+        this.updateStatusBadge();
     },
 
     getOccupiedSalleIdsForSlot: function(dayIdx, slotIdx, excludeTrainerId) {
@@ -1005,16 +1059,18 @@ window.formateurTimetable = {
         document.getElementById('lastSavedDisplay').style.display = 'none';
     },
     
-    updateStatusBadge: function() {
-        const badge = document.getElementById('statusBadge');
-        const text = document.getElementById('statusText');
-        
-        if (this.timetableExists) {
-            badge.className = 'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-green-50 text-green-700 border border-green-200';
-            text.textContent = 'Existant';
+    updateLoadingOverlay: function() {
+        const overlay = document.getElementById('loadingOverlay');
+        const formateurFilter = document.getElementById('formateurFilter');
+        const searchInput = document.getElementById('searchInput');
+        if (this.loading) {
+            overlay.classList.remove('hidden');
+            formateurFilter.disabled = true;
+            searchInput.disabled = true;
         } else {
-            badge.className = 'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200';
-            text.textContent = 'Nouveau';
+            overlay.classList.add('hidden');
+            formateurFilter.disabled = false;
+            searchInput.disabled = false;
         }
     },
     
@@ -1031,19 +1087,12 @@ window.formateurTimetable = {
         document.getElementById('selectedDate').value = this.selectedDate;
         this.updateDateDisplay();
 
-        // Refresh reference data so deleted groups/modules are not shown as stale options
-        this.moduleLabelById = {};
-        await Promise.all([
-            this.loadModules(),
-            this.loadAllGroups(),
-            this.loadFilteredGroupsForAllTrainers(),
-        ]);
-        
+        // Set loading state
+        this.loading = true;
+        this.updateLoadingOverlay();
+
         try {
-            // Load all timetable data for the date (shared data source)
-            if (!this.timetableCache) {
-                this.timetableCache = {};
-            }
+            // Load all timetable data for the date (shared data source) if not cached
             if (!this.timetableCache[this.selectedDate]) {
                 const response = await fetch(`/api/emploi-groupe/load?date=${this.selectedDate}`, { headers: { 'Accept': 'application/json' } });
                 if (response.ok) {
@@ -1054,41 +1103,8 @@ window.formateurTimetable = {
                 }
             }
             
-            const allEntries = this.timetableCache[this.selectedDate];
-            
-            // Reset timetable
-            this.resetTimetable();
-            
-            // Filter entries by selected formateur
-            const filteredEntries = this.selectedFormateur === 'all' 
-                ? allEntries 
-                : allEntries.filter(entry => String(entry.formateur_id) === this.selectedFormateur);
-            
-            // Populate timetable with filtered entries
-            filteredEntries.forEach(entry => {
-                if (String(entry.date || '').slice(0, 10) !== this.selectedDate) return;
-                const dayIndex = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'].indexOf(entry.jour || '');
-                const slotIndex = parseInt(entry.creneau?.substring(1) || '', 10) - 1;
-                
-                if (dayIndex >= 0 && slotIndex >= 0) {
-                    const trainerId = entry.formateur_id;
-                    if (!this.timetable[trainerId]) {
-                        this.timetable[trainerId] = { group: {}, module: {}, salle: {} };
-                    }
-                    this.setCellValue(trainerId, 'group', dayIndex, slotIndex, entry.groupe_id ? String(entry.groupe_id) : '');
-                    this.setCellValue(trainerId, 'module', dayIndex, slotIndex, entry.module_id ? String(entry.module_id) : '');
-                    const salleValue = entry.type_session === 'distance' ? 'teams' : entry.type_session === 'efm' ? 'efm' : (entry.salle_id ? String(entry.salle_id) : '');
-                    this.setCellValue(trainerId, 'salle', dayIndex, slotIndex, salleValue);
-                }
-            });
-            
-            // Set timetableExists
-            this.timetableExists = filteredEntries.length > 0;
-            
-            this.renderTable();
-            await this.refreshAllModuleDropdownsFormateur();
-            this.refreshSalleDropdowns();
-            this.updateStatusBadge();
+            // Filter and render
+            this.filterAndRenderTimetable();
             showToast('Emploi du temps chargé', 'success');
             
         } catch (error) {
@@ -1096,6 +1112,9 @@ window.formateurTimetable = {
             this.resetTimetable();
             this.renderTable();
             this.updateStatusBadge();
+        } finally {
+            this.loading = false;
+            this.updateLoadingOverlay();
         }
     },
     
@@ -1184,12 +1203,37 @@ window.formateurTimetable = {
                 }
                 
                 this.updateStatusBadge();
-                // Clear shared cache to ensure sync
-                if (this.timetableCache && this.timetableCache[this.selectedDate]) {
-                    delete this.timetableCache[this.selectedDate];
-                }
-                await this.loadTimetableForDate();
+                // Optimistic update: update local cache with saved entries for instant UI
+                this.timetableCache[this.selectedDate] = entries.map(entry => ({
+                    ...entry,
+                    formateur_id: entry.formateur_id,
+                    groupe_id: entry.groupe_id,
+                    module_id: entry.module_id,
+                    salle_id: entry.salle_id,
+                    jour: entry.jour,
+                    creneau: entry.creneau,
+                    date: entry.date,
+                    type_session: entry.type_session
+                }));
+                this.filterAndRenderTimetable();
                 showToast('Emploi du temps enregistré avec succès !', 'success');
+
+                // Silent revalidation: fetch fresh data from server to ensure consistency (stale-while-revalidate)
+                setTimeout(async () => {
+                    try {
+                        const revalidateResponse = await fetch(`/api/emploi-groupe/load?date=${this.selectedDate}`, { headers: { 'Accept': 'application/json' } });
+                        if (revalidateResponse.ok) {
+                            const payload = await revalidateResponse.json();
+                            const freshData = Array.isArray(payload) ? payload : (payload.data || []);
+                            // Update cache with fresh data
+                            this.timetableCache[this.selectedDate] = freshData;
+                            // Re-render to sync any discrepancies
+                            this.filterAndRenderTimetable();
+                        }
+                    } catch (e) {
+                        console.warn('Silent revalidation failed, keeping optimistic update:', e);
+                    }
+                }, 200); // Small delay to allow UI to settle
             } else {
                 const errorData = await response.json();
                 throw new Error(errorData.message || errorData.error || 'Failed to save');
