@@ -25,6 +25,11 @@ return new class extends Migration
 
     private function upgradeViaBlueprint(): void
     {
+        // Skip for SQLite as it has different unique constraint handling
+        if (DB::connection()->getDriverName() === 'sqlite') {
+            return;
+        }
+        
         Schema::table('emploi_du_temps', function (Blueprint $table) {
             try {
                 $table->index('groupe_id', 'emploi_du_temps_groupe_id_index');

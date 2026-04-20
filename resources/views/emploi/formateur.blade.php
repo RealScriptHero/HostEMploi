@@ -1482,6 +1482,23 @@ window.formateurTimetable = {
             delete this.timetableCache[this.selectedDate];
         }
         this.loadTimetableForDate();
+    },
+    
+    updateStatusBadge: function() {
+        const statusBadge = document.getElementById('statusBadge');
+        const statusText = document.getElementById('statusText');
+        
+        if (!statusBadge || !statusText) return;
+        
+        if (this.timetableExists) {
+            // Timetable exists - show "Sauvegardé" with green styling
+            statusBadge.className = 'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-green-100 text-green-800 border border-green-300';
+            statusText.textContent = 'Sauvegardé';
+        } else {
+            // No timetable - show "Nouveau" with amber styling
+            statusBadge.className = 'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-100 text-amber-800 border border-amber-300';
+            statusText.textContent = 'Nouveau';
+        }
     }
 };
 

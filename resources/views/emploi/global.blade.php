@@ -1521,7 +1521,6 @@ document.addEventListener('alpine:init', () => {
                 return r.json();
             }).then(() => {
                 this.timetableExists = false;
-                this.updateStatusBadge();
                 etToast('Emploi du temps réinitialisé et supprimé de la base de données', 'success');
             }).catch(e => {
                 console.error(e);

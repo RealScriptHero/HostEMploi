@@ -12,14 +12,23 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('salles', function (Blueprint $table) {
-            // Drop old columns if they exist
+            // Check the database driver
+            $connection = DB::connection()->getDriverName();
+            
+            // For SQLite, we need to handle this differently
+            if ($connection === 'sqlite') {
+                // SQLite doesn't support ALTER TABLE DROP COLUMN in older versions
+                // So we'll just skip this migration for SQLite - the columns might not exist anyway
+                return;
+            }
+            
+            // For other databases (MySQL, PostgreSQL), do the original operations
             if (Schema::hasColumn('salles', 'ville')) {
                 $table->dropColumn('ville');
             }
             if (Schema::hasColumn('salles', 'adresse')) {
                 $table->dropColumn('adresse');
             }
-            // Drop nomSalle if it already exists and nomCentre exists, then rename
             if (Schema::hasColumn('salles', 'nomCentre') && !Schema::hasColumn('salles', 'nomSalle')) {
                 $table->renameColumn('nomCentre', 'nomSalle');
             }
