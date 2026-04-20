@@ -51,6 +51,15 @@ RUN if [ ! -f artisan ]; then echo 'artisan file missing; cannot run composer in
 # Install PHP dependencies
 RUN composer install --no-dev --optimize-autoloader --prefer-dist --no-interaction
 
+# Clear and rebuild Laravel caches for production
+RUN php artisan config:clear && \
+    php artisan cache:clear && \
+    php artisan route:clear && \
+    php artisan view:clear && \
+    php artisan config:cache && \
+    php artisan route:cache && \
+    php artisan view:cache
+
 # Install Node.js dependencies and build frontend assets
 RUN npm ci && npm run build && \
     if [ ! -f public/build/manifest.json ]; then \
