@@ -450,6 +450,17 @@ class EmploiDuTempsController extends Controller
             }
             $toInsert = array_merge(array_values($byGroupeSlot), $withoutGroupeSlot);
 
+            $centreIds = [];
+            foreach ($toInsert as $entry) {
+                if (! empty($entry['groupe_id'])) {
+                    $centreId = Groupe::where('id', $entry['groupe_id'])->value('centre_id');
+                    if ($centreId) {
+                        $centreIds[] = $centreId;
+                    }
+                }
+            }
+            $centreIds = array_values(array_unique($centreIds));
+
             // Remove existing rows for those group slots (any formateur) to avoid unique constraint violations
             foreach ($byGroupeSlot as $entry) {
                 EmploiDuTemps::query()
@@ -485,8 +496,13 @@ class EmploiDuTempsController extends Controller
                 Cache::forget('timetable_formateur_' . $formateurId . '_' . $date);
                 Cache::forget('groupes_for_formateur_' . $formateurId);
             }
-            // Clear centre caches (since formateur changes affect centre views)
+            // Clear centre and shared group timetable caches (since formateur changes affect centre/group views)
             Cache::forget('timetable_centre_all_' . $date);
+            foreach ($centreIds as $centreId) {
+                Cache::forget('timetable_centre_' . $centreId . '_' . $date);
+                Cache::forget('emploi_groupe_' . $centreId . '_' . $date);
+            }
+            Cache::forget('emploi_groupe_all_' . $date);
             // Clear salle availability caches for this date
             Cache::forget('salles_disponibles_' . $date . '_Lundi_S1_none');
             Cache::forget('salles_disponibles_' . $date . '_Lundi_S2_none');
@@ -647,6 +663,7 @@ class EmploiDuTempsController extends Controller
             }
             Cache::forget('timetable_centre_' . ($centreId ?? 'all') . '_' . $date);
             Cache::forget('emploi_groupe_' . ($centreId ?? 'all') . '_' . $date);
+            Cache::forget('emploi_groupe_all_' . $date);
             // Clear salle availability caches for this date
             $jours = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
             $seances = ['S1', 'S2', 'S3', 'S4'];
@@ -933,7 +950,7 @@ class EmploiDuTempsController extends Controller
             $academicYear = $month >= 9 ? "$year-" . ($year + 1) : ($year - 1) . "-$year";
 
             // Get all groups for the centre, using the same logic as the groups API
-            $query = Groupe::query()->where('centre_id', $centreId)->orderBy('id', 'desc');
+            $query = Groupe::query()->where('centre_id', $centreId)->orderBy('id', 'asc');
             $groupes = $query->with(['centre','modules','emplois'])->get()->map(function (Groupe $groupe) {
                 $groupe->load(['modules', 'emplois']);
                 $groupe->avancement;
