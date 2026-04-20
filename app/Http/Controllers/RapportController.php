@@ -423,51 +423,80 @@ class RapportController extends Controller
         $enriched = [];
         
         foreach ($absences as $absence) {
-            // Handle both 'date' and 'dateAbsence' field names
-            $absenceDate = $absence['dateAbsence'] ?? $absence['date'] ?? null;
-            
-            if (!$absenceDate) {
+            try {
+                // Handle both 'date' and 'dateAbsence' field names
+                $absenceDate = $absence['dateAbsence'] ?? $absence['date'] ?? null;
+                
+                if (!$absenceDate) {
+                    $enriched[] = $absence;
+                    continue;
+                }
+                
+                // Check if it's a formateur absence
+                if (isset($absence['formateur_id'])) {
+                    try {
+                        $dbAbsence = AbsenceFormateur::where('formateur_id', $absence['formateur_id'])
+                            ->where('dateAbsence', $absenceDate)
+                            ->with('formateur')
+                            ->first();
+                        
+                        if ($dbAbsence) {
+                            $absence['motif'] = $dbAbsence->motif ?? 'Non spécifié';
+                            $absence['dateAbsence'] = $dbAbsence->dateAbsence;
+                            
+                            // Safely set formateur data with null checks
+                            if ($dbAbsence->formateur && !is_null($dbAbsence->formateur)) {
+                                $absence['formateur'] = [
+                                    'nom' => $dbAbsence->formateur->nom ?? $dbAbsence->formateur->name ?? 'Unknown',
+                                    'prenom' => $dbAbsence->formateur->prenom ?? ''
+                                ];
+                            } else {
+                                $absence['formateur'] = ['nom' => 'Unknown', 'prenom' => ''];
+                            }
+                        } else {
+                            $absence['formateur'] = ['nom' => 'Unknown', 'prenom' => ''];
+                        }
+                    } catch (\Exception $e) {
+                        // Fallback if relationship fails
+                        $absence['formateur'] = ['nom' => 'Unknown', 'prenom' => ''];
+                        $absence['motif'] = 'Non spécifié';
+                    }
+                }
+                // Check if it's a groupe absence
+                elseif (isset($absence['groupe_id'])) {
+                    try {
+                        $dbAbsence = AbsenceGroupe::where('groupe_id', $absence['groupe_id'])
+                            ->where('dateAbsence', $absenceDate)
+                            ->with('groupe')
+                            ->first();
+                        
+                        if ($dbAbsence) {
+                            $absence['motif'] = $dbAbsence->motif ?? 'Non spécifié';
+                            $absence['dateAbsence'] = $dbAbsence->dateAbsence;
+                            
+                            // Safely set groupe data with null checks
+                            if ($dbAbsence->groupe && !is_null($dbAbsence->groupe)) {
+                                $absence['groupe'] = [
+                                    'nomGroupe' => $dbAbsence->groupe->nomGroupe ?? $dbAbsence->groupe->name ?? 'Unknown'
+                                ];
+                            } else {
+                                $absence['groupe'] = ['nomGroupe' => 'Unknown'];
+                            }
+                        } else {
+                            $absence['groupe'] = ['nomGroupe' => 'Unknown'];
+                        }
+                    } catch (\Exception $e) {
+                        // Fallback if relationship fails
+                        $absence['groupe'] = ['nomGroupe' => 'Unknown'];
+                        $absence['motif'] = 'Non spécifié';
+                    }
+                }
+                
                 $enriched[] = $absence;
-                continue;
+            } catch (\Exception $e) {
+                // If anything goes wrong with this absence, keep the original but ensure minimal required fields
+                $enriched[] = array_merge(['motif' => 'Non spécifié'], $absence);
             }
-            
-            // Check if it's a formateur absence
-            if (isset($absence['formateur_id'])) {
-                $dbAbsence = AbsenceFormateur::where('formateur_id', $absence['formateur_id'])
-                    ->where('dateAbsence', $absenceDate)
-                    ->with('formateur')
-                    ->first();
-                
-                if ($dbAbsence) {
-                    $absence['motif'] = $dbAbsence->motif;
-                    $absence['dateAbsence'] = $dbAbsence->dateAbsence;
-                    if ($dbAbsence->formateur) {
-                        $absence['formateur'] = [
-                            'nom' => $dbAbsence->formateur->nom ?? $dbAbsence->formateur->name ?? 'Unknown',
-                            'prenom' => $dbAbsence->formateur->prenom ?? 'Unknown'
-                        ];
-                    }
-                }
-            }
-            // Check if it's a groupe absence
-            elseif (isset($absence['groupe_id'])) {
-                $dbAbsence = AbsenceGroupe::where('groupe_id', $absence['groupe_id'])
-                    ->where('dateAbsence', $absenceDate)
-                    ->with('groupe')
-                    ->first();
-                
-                if ($dbAbsence) {
-                    $absence['motif'] = $dbAbsence->motif;
-                    $absence['dateAbsence'] = $dbAbsence->dateAbsence;
-                    if ($dbAbsence->groupe) {
-                        $absence['groupe'] = [
-                            'nomGroupe' => $dbAbsence->groupe->nomGroupe ?? $dbAbsence->groupe->name ?? 'Unknown'
-                        ];
-                    }
-                }
-            }
-            
-            $enriched[] = $absence;
         }
         
         return $enriched;

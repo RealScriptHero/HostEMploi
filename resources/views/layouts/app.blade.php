@@ -76,8 +76,8 @@
                                 $u = auth()->user();
                                 $initials = '';
                                 if ($u) {
-                                    $first = $u->prenom ?? $u->nom ?? '';
-                                    $last  = $u->nom ?? '';
+                                    $first = optional($u)->prenom ?? optional($u)->nom ?? '';
+                                    $last  = optional($u)->nom ?? '';
                                     $initials = strtoupper(mb_substr($first, 0, 1) . ($last && $last !== $first ? mb_substr($last, 0, 1) : ''));
                                 }
                             @endphp

@@ -343,10 +343,10 @@
                 <tr>
                     <td>{{ isset($absence['dateAbsence']) ? \Carbon\Carbon::parse($absence['dateAbsence'])->format('d/m/Y') : (isset($absence['date']) ? \Carbon\Carbon::parse($absence['date'])->format('d/m/Y') : 'N/A') }}</td>
                     <td>
-                        @if(isset($absence['formateur_id']))
-                            {{ $absence['formateur']['nom'] ?? '' }} {{ $absence['formateur']['prenom'] ?? '' }}
-                        @elseif(isset($absence['groupe_id']))
-                            {{ $absence['groupe']['nomGroupe'] ?? 'Groupe' }}
+                        @if(isset($absence['formateur_id']) && is_array($absence['formateur'] ?? null))
+                            {{ ($absence['formateur']['nom'] ?? '') }} {{ ($absence['formateur']['prenom'] ?? '') }}
+                        @elseif(isset($absence['groupe_id']) && is_array($absence['groupe'] ?? null))
+                            {{ ($absence['groupe']['nomGroupe'] ?? 'Groupe') }}
                         @else
                             N/A
                         @endif

@@ -7,7 +7,7 @@
     <div class="mb-6 pt-4">
         <div class="flex items-center justify-between">
             <h1 class="text-3xl font-bold text-gray-900">
-                Bienvenue {{ auth()->user()->prenom ?? auth()->user()->nom ?? 'Utilisateur' }}
+                Bienvenue {{ optional(auth()->user())->prenom ?? optional(auth()->user())->nom ?? 'Utilisateur' }}
             </h1>
             <div class="text-sm text-gray-500 font-normal">
                 <span>Accueil</span>

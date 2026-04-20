@@ -23,5 +23,10 @@ class AppServiceProvider extends ServiceProvider
         if ($this->app->environment('production')) {
             URL::forceScheme('https');
         }
+
+        // Disable query logging in production to save memory
+        if ($this->app->environment('production')) {
+            \DB::connection()->disableQueryLog();
+        }
     }
 }
