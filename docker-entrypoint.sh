@@ -16,6 +16,7 @@ chown -R www-data:www-data /app/storage /app/bootstrap/cache 2>/dev/null || echo
 
 # Clear all stale caches before rebuilding
 echo "Clearing stale caches..."
+php artisan optimize:clear || echo "optimize:clear: skipped or failed, continuing."
 php artisan config:clear || echo "config:clear: skipped or failed, continuing."
 php artisan cache:clear || echo "cache:clear: skipped or failed, continuing."
 php artisan route:clear || echo "route:clear: skipped or failed, continuing."
@@ -48,6 +49,8 @@ fi
 # Rebuild configuration caches for production (these should be built fresh at runtime)
 echo "Building fresh application caches..."
 php artisan config:cache || echo 'config:cache failed, continuing.'
+php artisan route:cache || echo 'route:cache failed, continuing.'
+php artisan view:cache || echo 'view:cache failed, continuing.'
 php artisan route:cache || echo 'route:cache failed, continuing.'
 php artisan view:cache || echo 'view:cache failed, continuing.'
 

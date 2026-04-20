@@ -7,7 +7,6 @@ use App\Services\RapportService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Cache;
 use PDO;
 
 class GroupeController extends Controller
@@ -17,11 +16,9 @@ class GroupeController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        // If caller requested all groups (for selects), return full list without pagination (cached)
+        // If caller requested all groups (for selects), return full list without pagination
         if ($request->query('all')) {
-            $all = Cache::remember('all_groupes', 43200, function() {
-                return Groupe::with(['centre:id,shortName'])->orderBy('id', 'desc')->get();
-            });
+            $all = Groupe::with(['centre:id,shortName'])->orderBy('id', 'desc')->get();
             return response()->json(['data' => $all]);
         }
 
@@ -69,7 +66,13 @@ class GroupeController extends Controller
             // Debug: Log the results
             \Log::info('Groups fetched (no pagination)', [
                 'count' => $groups->count(),
-                'first_few' => $groups->take(3)->pluck('nomGroupe')->toArray()
+                'applied_filters' => [
+                    'search' => $search,
+                    'filiere' => $filiere,
+                    'niveau' => $niveau,
+                    'centre_id' => $centre_id,
+                ],
+                'cache_hit' => false,
             ]);
 
             return response()->json([
@@ -91,6 +94,21 @@ class GroupeController extends Controller
             $groupe->advancement;
             return $groupe;
         })->values();
+
+        // Debug: Log the results
+        \Log::info('Groups fetched (paginated)', [
+            'count' => $items->count(),
+            'total' => $paginator->total(),
+            'page' => $page,
+            'perPage' => $perPage,
+            'applied_filters' => [
+                'search' => $search,
+                'filiere' => $filiere,
+                'niveau' => $niveau,
+                'centre_id' => $centre_id,
+            ],
+            'cache_hit' => false,
+        ]);
 
         return response()->json([
             'data' => $items,
@@ -119,9 +137,6 @@ class GroupeController extends Controller
         $groupe = Groupe::create($validated);
         // Load centre relation before returning
         $groupe->load('centre');
-
-        // Clear cache to ensure new group appears immediately
-        Cache::forget('all_groupes');
 
         return response()->json($groupe, 201);
     }
@@ -153,9 +168,6 @@ class GroupeController extends Controller
         // Load centre relation before returning
         $groupe->load('centre');
 
-        // Clear cache to ensure changes appear immediately
-        Cache::forget('all_groupes');
-
         return response()->json($groupe);
     }
 
@@ -166,11 +178,6 @@ class GroupeController extends Controller
     {
         $groupeId = $groupe->id;
         $groupe->delete();
-
-        // Clear caches
-        Cache::forget('all_groupes');
-        Cache::forget('modules_groupe_'.$groupeId);
-        Cache::forget('formateurs_for_groupe_'.$groupeId);
 
         // Attempt to reset auto-increment/sequence so IDs are compacted.
         try {
