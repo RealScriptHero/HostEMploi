@@ -119,16 +119,18 @@ RUN chown -R www-data:www-data /app && \
     chmod -R 755 /app && \
     chmod -R 775 /app/storage /app/bootstrap/cache
 
-# Copy entrypoint script
-COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
-
-# Create storage directory if it doesn't exist
+# Create all required Laravel cache and storage subdirectories with proper permissions
 RUN mkdir -p /app/storage/framework/sessions && \
     mkdir -p /app/storage/framework/views && \
     mkdir -p /app/storage/framework/cache && \
     mkdir -p /app/storage/logs && \
-    chown -R www-data:www-data /app/storage
+    mkdir -p /app/bootstrap/cache && \
+    chown -R www-data:www-data /app/storage /app/bootstrap/cache && \
+    chmod -R 775 /app/storage /app/bootstrap/cache
+
+# Copy entrypoint script
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 EXPOSE 8080
 
