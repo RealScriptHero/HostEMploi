@@ -51,8 +51,6 @@ echo "Building fresh application caches..."
 php artisan config:cache || echo 'config:cache failed, continuing.'
 php artisan route:cache || echo 'route:cache failed, continuing.'
 php artisan view:cache || echo 'view:cache failed, continuing.'
-php artisan route:cache || echo 'route:cache failed, continuing.'
-php artisan view:cache || echo 'view:cache failed, continuing.'
 
 echo "Container startup complete. Starting PHP server..."
 

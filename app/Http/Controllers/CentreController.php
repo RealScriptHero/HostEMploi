@@ -3,8 +3,13 @@
 namespace App\Http\Controllers;
 
 use App\Models\Centre;
+use App\Models\Salle;
+use App\Models\Groupe;
+use App\Models\Timetable;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 
 class CentreController extends Controller
 {
@@ -45,6 +50,7 @@ class CentreController extends Controller
             'adresse' => $adresse,
         ]);
 
+        Cache::flush();
         return response()->json($centre, 201);
     }
 
@@ -83,6 +89,7 @@ class CentreController extends Controller
         }
 
         $centre->update($data);
+        Cache::flush();
         return response()->json($centre);
     }
 
@@ -91,7 +98,27 @@ class CentreController extends Controller
      */
     public function destroy(Centre $centre): JsonResponse
     {
-        $centre->delete();
+        try {
+            DB::transaction(function () use ($centre) {
+                Salle::where('centre_id', $centre->id)->delete();
+                Groupe::where('centre_id', $centre->id)->update(['centre_id' => null]);
+                Timetable::where('centre_id', $centre->id)->update(['centre_id' => null]);
+                $centre->delete();
+            });
+
+            Cache::flush();
+        } catch (\Throwable $e) {
+            \Log::error('Failed to delete centre', [
+                'id' => $centre->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'message' => 'Could not delete centre',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+
         return response()->json(['message' => 'Centre deleted successfully']);
     }
 }

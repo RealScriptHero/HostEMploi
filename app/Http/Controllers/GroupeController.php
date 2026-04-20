@@ -3,9 +3,14 @@
 namespace App\Http\Controllers;
 
 use App\Models\Groupe;
+use App\Models\EmploiDuTemps;
+use App\Models\Stage;
+use App\Models\AbsenceGroupe;
+use App\Models\AbsenceFormateur;
 use App\Services\RapportService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use PDO;
 
@@ -18,7 +23,7 @@ class GroupeController extends Controller
     {
         // If caller requested all groups (for selects), return full list without pagination
         if ($request->query('all')) {
-            $all = Groupe::with(['centre:id,shortName'])->orderBy('id', 'desc')->get();
+            $all = Groupe::with(['centre:id,shortName'])->orderBy('id', 'asc')->get();
             return response()->json(['data' => $all]);
         }
 
@@ -31,7 +36,7 @@ class GroupeController extends Controller
         $page = (int) $request->query('page', 1);
         $noPagination = $request->query('no_pagination') || $perPage >= 1000; // Allow high perPage to bypass pagination
 
-        $query = Groupe::query()->orderBy('id', 'desc'); // Newest first
+        $query = Groupe::query()->orderBy('id', 'asc'); // Stable order
 
         if ($search) {
             $query->where(function ($q) use ($search) {
@@ -125,7 +130,7 @@ class GroupeController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'nomGroupe' => 'required|string|max:255',
+            'nomGroupe' => 'required|string|max:255|unique:groupes,nomGroupe',
             'centre_id' => 'required|exists:centres,id',
             'filiere' => 'required|string|max:255',
             'niveau' => 'required|string|max:255',
@@ -137,6 +142,7 @@ class GroupeController extends Controller
         $groupe = Groupe::create($validated);
         // Load centre relation before returning
         $groupe->load('centre');
+        Cache::flush();
 
         return response()->json($groupe, 201);
     }
@@ -167,6 +173,7 @@ class GroupeController extends Controller
         $groupe->update($validated);
         // Load centre relation before returning
         $groupe->load('centre');
+        Cache::flush();
 
         return response()->json($groupe);
     }
@@ -177,25 +184,28 @@ class GroupeController extends Controller
     public function destroy(Groupe $groupe): JsonResponse
     {
         $groupeId = $groupe->id;
-        $groupe->delete();
 
-        // Attempt to reset auto-increment/sequence so IDs are compacted.
         try {
-            $driver = DB::getPdo()->getAttribute(PDO::ATTR_DRIVER_NAME);
-            $max = DB::table('groupes')->max('id') ?? 0;
+            DB::transaction(function () use ($groupe, $groupeId) {
+                $groupe->modules()->detach();
+                AbsenceFormateur::where('groupe_id', $groupeId)->update(['groupe_id' => null]);
+                AbsenceGroupe::where('groupe_id', $groupeId)->delete();
+                Stage::where('groupe_id', $groupeId)->delete();
+                EmploiDuTemps::where('groupe_id', $groupeId)->delete();
+                $groupe->delete();
+            });
 
-            if ($driver === 'mysql') {
-                $next = $max + 1;
-                DB::statement("ALTER TABLE groupes AUTO_INCREMENT = {$next}");
-            } elseif ($driver === 'sqlite') {
-                // sqlite maintains sqlite_sequence table
-                DB::statement("UPDATE sqlite_sequence SET seq = {$max} WHERE name = 'groupes'");
-            } elseif ($driver === 'pgsql') {
-                DB::statement("SELECT setval(pg_get_serial_sequence('groupes','id'), {$max}, true)");
-            }
+            Cache::flush();
         } catch (\Throwable $e) {
-            // Not critical — ignore if database doesn't support resetting sequences this way
-            logger()->warning('Failed to reset groupes auto-increment: ' . $e->getMessage());
+            \Log::error('Failed to delete groupe', [
+                'id' => $groupeId,
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'message' => 'Could not delete group',
+                'error' => $e->getMessage(),
+            ], 500);
         }
 
         return response()->json(['message' => 'Groupe deleted successfully']);

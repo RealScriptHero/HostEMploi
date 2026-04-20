@@ -626,6 +626,8 @@ const registerFn = () => {
                             notes:       cl(values[5]),
                             active:      values[6] === 'true' || values[6] === '1',
                         };
+                        // Skip if group already exists
+                        if (self.groups.some(g => g.name === payload.nomGroupe)) continue;
                         const headers = { 'Content-Type': 'application/json' };
                         const meta = document.querySelector('meta[name="csrf-token"]');
                         if (meta) headers['X-CSRF-TOKEN'] = meta.content;

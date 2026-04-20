@@ -3,9 +3,15 @@
 namespace App\Http\Controllers;
 
 use App\Models\Formateur;
+use App\Models\EmploiDuTemps;
+use App\Models\Stage;
+use App\Models\AbsenceFormateur;
+use App\Models\Avancement;
 use Illuminate\View\View;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 
 class FormateurController extends Controller
 {
@@ -55,6 +61,7 @@ class FormateurController extends Controller
         }
         
         $formateur->load('modules');
+        Cache::flush();
         return response()->json($formateur, 201);
     }
 
@@ -92,7 +99,7 @@ class FormateurController extends Controller
         }
         
         $formateur->load('modules');
-        Cache::forget('groupes_for_formateur_'.$formateur->id);
+        Cache::flush();
         return response()->json($formateur);
     }
 
@@ -102,7 +109,30 @@ class FormateurController extends Controller
     public function destroy(Formateur $formateur): JsonResponse
     {
         $formateurId = $formateur->id;
-        $formateur->delete();
+
+        try {
+            DB::transaction(function () use ($formateur, $formateurId) {
+                $formateur->modules()->detach();
+                EmploiDuTemps::where('formateur_id', $formateurId)->delete();
+                Stage::where('formateur_id', $formateurId)->delete();
+                AbsenceFormateur::where('formateur_id', $formateurId)->delete();
+                Avancement::where('formateur_id', $formateurId)->delete();
+                $formateur->delete();
+            });
+
+            Cache::flush();
+        } catch (\Throwable $e) {
+            \Log::error('Failed to delete formateur', [
+                'id' => $formateurId,
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'message' => 'Could not delete formateur',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+
         return response()->json(['message' => 'Formateur deleted successfully']);
     }
 }
