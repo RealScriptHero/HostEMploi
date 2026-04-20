@@ -276,6 +276,7 @@ window.formateurTimetable = {
     timetable: {},
     timetableCache: {}, // Shared cache for all data
     loading: false, // Loading state
+    searchDebounceTimer: null,
     
     // data from database; populated by API calls
     trainers: [],
@@ -356,23 +357,43 @@ window.formateurTimetable = {
 
     onSearchInput: function() {
         this.searchTerm = document.getElementById('searchInput').value.toLowerCase().trim();
-        this.filterAndRenderTimetable();
+        if (this.searchDebounceTimer) {
+            clearTimeout(this.searchDebounceTimer);
+        }
+        this.searchDebounceTimer = setTimeout(() => {
+            this.filterAndRenderTimetable();
+        }, 200);
     },
 
     filterAndRenderTimetable: function() {
         // Filter the cached data based on selectedFormateur and searchTerm
-        const allEntries = this.timetableCache[this.selectedDate] || [];
+        const allEntries = Array.isArray(this.timetableCache[this.selectedDate]) ? this.timetableCache[this.selectedDate].slice() : [];
+        const sortedEntries = allEntries.sort((a, b) => {
+            const compare = (x, y) => {
+                if (x === y) return 0;
+                if (x === null || x === undefined) return 1;
+                if (y === null || y === undefined) return -1;
+                return String(x).localeCompare(String(y), 'fr', { numeric: true });
+            };
+            let result = compare(a.formateur_id, b.formateur_id);
+            if (result !== 0) return result;
+            result = compare(a.groupe_id, b.groupe_id);
+            if (result !== 0) return result;
+            result = compare(a.jour, b.jour);
+            if (result !== 0) return result;
+            return compare(a.creneau, b.creneau);
+        });
         
         let filteredEntries = this.selectedFormateur === 'all' 
-            ? allEntries 
-            : allEntries.filter(entry => String(entry.formateur_id) === this.selectedFormateur);
+            ? sortedEntries 
+            : sortedEntries.filter(entry => String(entry.formateur_id) === String(this.selectedFormateur));
         
         if (this.searchTerm) {
             filteredEntries = filteredEntries.filter(entry => {
-                const trainer = this.trainers.find(t => t.id == entry.formateur_id);
-                const group = this.allGroups.find(g => g.id == entry.groupe_id);
-                const trainerName = trainer ? (trainer.nom + ' ' + trainer.prenom).toLowerCase() : '';
-                const groupName = group ? group.nomGroupe.toLowerCase() : '';
+                const trainer = this.trainers.find(t => String(t.id) === String(entry.formateur_id));
+                const group = this.allGroups.find(g => String(g.id) === String(entry.groupe_id));
+                const trainerName = trainer ? (trainer.name || '').toLowerCase() : '';
+                const groupName = group ? (group.label || '').toLowerCase() : '';
                 return trainerName.includes(this.searchTerm) || groupName.includes(this.searchTerm);
             });
         }
@@ -1081,19 +1102,20 @@ window.formateurTimetable = {
         document.getElementById('dayName').textContent = date.toLocaleDateString('fr-FR', { weekday: 'long' }).toUpperCase();
     },
     
-    async loadTimetableForDate() {
+    async loadTimetableForDate({ forceRefresh = false } = {}) {
         this.selectedDate = document.getElementById('selectedDate').value;
         this.selectedDate = this.formatLocalDate(this.parseLocalDate(this.selectedDate));
         document.getElementById('selectedDate').value = this.selectedDate;
         this.updateDateDisplay();
 
-        // Set loading state
-        this.loading = true;
-        this.updateLoadingOverlay();
+        const hasCache = Array.isArray(this.timetableCache[this.selectedDate]);
+        if (!hasCache || forceRefresh) {
+            this.loading = true;
+            this.updateLoadingOverlay();
+        }
 
         try {
-            // Load all timetable data for the date (shared data source) if not cached
-            if (!this.timetableCache[this.selectedDate]) {
+            if (!hasCache || forceRefresh) {
                 const response = await fetch(`/api/emploi-groupe/load?date=${this.selectedDate}`, { headers: { 'Accept': 'application/json' } });
                 if (response.ok) {
                     const payload = await response.json();
@@ -1101,20 +1123,22 @@ window.formateurTimetable = {
                 } else {
                     this.timetableCache[this.selectedDate] = [];
                 }
+                this.filterAndRenderTimetable();
+                showToast('Emploi du temps chargé', 'success');
+            } else {
+                this.filterAndRenderTimetable();
+                this.revalidateTimetableForDate({ silent: true });
             }
-            
-            // Filter and render
-            this.filterAndRenderTimetable();
-            showToast('Emploi du temps chargé', 'success');
-            
         } catch (error) {
             console.error('Error loading timetable:', error);
             this.resetTimetable();
             this.renderTable();
             this.updateStatusBadge();
         } finally {
-            this.loading = false;
-            this.updateLoadingOverlay();
+            if (!hasCache || forceRefresh) {
+                this.loading = false;
+                this.updateLoadingOverlay();
+            }
         }
     },
     
@@ -1219,21 +1243,7 @@ window.formateurTimetable = {
                 showToast('Emploi du temps enregistré avec succès !', 'success');
 
                 // Silent revalidation: fetch fresh data from server to ensure consistency (stale-while-revalidate)
-                setTimeout(async () => {
-                    try {
-                        const revalidateResponse = await fetch(`/api/emploi-groupe/load?date=${this.selectedDate}`, { headers: { 'Accept': 'application/json' } });
-                        if (revalidateResponse.ok) {
-                            const payload = await revalidateResponse.json();
-                            const freshData = Array.isArray(payload) ? payload : (payload.data || []);
-                            // Update cache with fresh data
-                            this.timetableCache[this.selectedDate] = freshData;
-                            // Re-render to sync any discrepancies
-                            this.filterAndRenderTimetable();
-                        }
-                    } catch (e) {
-                        console.warn('Silent revalidation failed, keeping optimistic update:', e);
-                    }
-                }, 200); // Small delay to allow UI to settle
+                setTimeout(() => this.revalidateTimetableForDate({ silent: true }), 200); // Small delay to allow UI to settle
             } else {
                 const errorData = await response.json();
                 throw new Error(errorData.message || errorData.error || 'Failed to save');
@@ -1245,6 +1255,26 @@ window.formateurTimetable = {
             saveBtn.disabled = false;
             saveBtnText.textContent = 'Enregistrer';
             this.saving = false;
+        }
+    },
+
+    async revalidateTimetableForDate({ silent = false } = {}) {
+        if (!this.selectedDate) return;
+        if (!Array.isArray(this.timetableCache[this.selectedDate])) {
+            return this.loadTimetableForDate({ forceRefresh: true });
+        }
+
+        try {
+            const response = await fetch(`/api/emploi-groupe/load?date=${this.selectedDate}`, { headers: { 'Accept': 'application/json' } });
+            if (response.ok) {
+                const payload = await response.json();
+                const freshData = Array.isArray(payload) ? payload : (payload.data || []);
+                this.timetableCache[this.selectedDate] = freshData;
+                this.filterAndRenderTimetable();
+                if (!silent) showToast('Emploi du temps synchronisé', 'success');
+            }
+        } catch (e) {
+            if (!silent) console.error('Revalidation failed:', e);
         }
     },
     
@@ -1462,8 +1492,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // Add real-time sync on window focus
 window.addEventListener('focus', () => {
-    if (window.formateurTimetable && window.formateurTimetable.loadTimetableForDate) {
-        window.formateurTimetable.loadTimetableForDate();
+    if (window.formateurTimetable && window.formateurTimetable.revalidateTimetableForDate) {
+        window.formateurTimetable.revalidateTimetableForDate({ silent: true });
     }
 });
 </script>

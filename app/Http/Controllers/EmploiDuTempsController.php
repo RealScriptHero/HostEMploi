@@ -582,6 +582,19 @@ class EmploiDuTempsController extends Controller
             return $entry;
         }, $entries);
         
+        $formateurIds = [];
+        $groupIds = [];
+        foreach ($entries as $entry) {
+            if (!empty($entry['formateur_id'])) {
+                $formateurIds[] = intval($entry['formateur_id']);
+            }
+            if (!empty($entry['groupe_id'])) {
+                $groupIds[] = intval($entry['groupe_id']);
+            }
+        }
+        $formateurIds = array_values(array_unique(array_filter($formateurIds)));
+        $groupIds = array_values(array_unique(array_filter($groupIds)));
+
         DB::beginTransaction();
         try {
             // Insert new entries, deleting existing for each slot
@@ -619,11 +632,28 @@ class EmploiDuTempsController extends Controller
                 }
             }
             
+            if (!empty($groupIds)) {
+                $existingFormateurIds = EmploiDuTemps::withoutGlobalScope('academic_year')
+                    ->whereDate('date', $date)
+                    ->whereIn('groupe_id', $groupIds)
+                    ->pluck('formateur_id')
+                    ->filter()
+                    ->unique()
+                    ->toArray();
+                $formateurIds = array_values(array_unique(array_merge($formateurIds, $existingFormateurIds)));
+            }
+
             DB::commit();
 
             // Clear related caches
+            foreach ($formateurIds as $formateurId) {
+                Cache::forget('timetable_formateur_' . $formateurId . '_' . $date);
+                Cache::forget('groupes_for_formateur_' . $formateurId);
+            }
             Cache::forget('timetable_centre_' . ($centreId ?? 'all') . '_' . $date);
+            Cache::forget('timetable_centre_all_' . $date);
             Cache::forget('emploi_groupe_' . ($centreId ?? 'all') . '_' . $date);
+            Cache::forget('emploi_groupe_all_' . $date);
             // Clear salle availability caches for this date
             $jours = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
             $seances = ['S1', 'S2', 'S3', 'S4'];
@@ -712,7 +742,7 @@ class EmploiDuTempsController extends Controller
                 });
             }
 
-            return $query->get();
+            return $query->orderBy('groupe_id')->orderBy('jour')->orderBy('creneau')->get();
         });
 
         return response()->json(['data' => $timetable]);
@@ -756,7 +786,32 @@ class EmploiDuTempsController extends Controller
 
         DB::beginTransaction();
         try {
+            $formateurIds = [];
+            $groupIds = [];
+            foreach ($entries as $entry) {
+                if (!empty($entry['formateur_id'])) {
+                    $formateurIds[] = intval($entry['formateur_id']);
+                }
+                if (!empty($entry['groupe_id'])) {
+                    $groupIds[] = intval($entry['groupe_id']);
+                }
+            }
+            $formateurIds = array_values(array_unique(array_filter($formateurIds)));
+            $groupIds = array_values(array_unique(array_filter($groupIds)));
+
             if (empty($entries)) {
+                $affectedFormateurIds = EmploiDuTemps::withoutGlobalScope('academic_year')
+                    ->whereDate('date', $date)
+                    ->when($centreId, function ($q) use ($centreId) {
+                        $q->whereHas('groupe', function ($g) use ($centreId) {
+                            $g->where('centre_id', $centreId);
+                        });
+                    })
+                    ->pluck('formateur_id')
+                    ->filter()
+                    ->unique()
+                    ->toArray();
+
                 $deleteQuery = EmploiDuTemps::query()
                     ->whereDate('date', $date);
 
@@ -773,12 +828,18 @@ class EmploiDuTempsController extends Controller
                 $deleteQuery->delete();
 
                 DB::commit();
+
+                foreach ($affectedFormateurIds as $formateurId) {
+                    Cache::forget('timetable_formateur_' . $formateurId . '_' . $date);
+                    Cache::forget('groupes_for_formateur_' . $formateurId);
+                }
+                Cache::forget('timetable_centre_' . ($centreId ?? 'all') . '_' . $date);
+                Cache::forget('timetable_centre_all_' . $date);
+                Cache::forget('emploi_groupe_' . ($centreId ?? 'all') . '_' . $date);
+                Cache::forget('emploi_groupe_all_' . $date);
+
                 return response()->json(['success' => true, 'message' => 'Emploi du temps supprimé avec succès']);
             }
-
-            $groupIds = array_unique(array_filter(array_map(function ($entry) {
-                return $entry['groupe_id'] ?? null;
-            }, $entries)));
 
             if (!empty($groupIds)) {
                 $deleteQuery = EmploiDuTemps::query()
@@ -875,11 +936,28 @@ class EmploiDuTempsController extends Controller
                 );
             }
 
+            if (!empty($groupIds)) {
+                $existingFormateurIds = EmploiDuTemps::withoutGlobalScope('academic_year')
+                    ->whereDate('date', $date)
+                    ->whereIn('groupe_id', $groupIds)
+                    ->pluck('formateur_id')
+                    ->filter()
+                    ->unique()
+                    ->toArray();
+                $formateurIds = array_values(array_unique(array_merge($formateurIds, $existingFormateurIds)));
+            }
+
             DB::commit();
 
             // Clear related caches
+            foreach ($formateurIds as $formateurId) {
+                Cache::forget('timetable_formateur_' . $formateurId . '_' . $date);
+                Cache::forget('groupes_for_formateur_' . $formateurId);
+            }
             Cache::forget('timetable_centre_' . ($centreId ?? 'all') . '_' . $date);
+            Cache::forget('timetable_centre_all_' . $date);
             Cache::forget('emploi_groupe_' . ($centreId ?? 'all') . '_' . $date);
+            Cache::forget('emploi_groupe_all_' . $date);
             // Clear salle availability caches for this date
             $jours = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
             $seances = ['S1', 'S2', 'S3', 'S4'];
